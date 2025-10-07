@@ -1,5 +1,2 @@
 flask
 geopy
-math
-re
-string
