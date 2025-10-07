@@ -58,4 +58,4 @@ def handle_form():
 
 if __name__ == "__main__":
     print("🚀 Flask webhook server starting...")
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=8080, debug=True)
