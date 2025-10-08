@@ -71,12 +71,44 @@ def handle_contact_form(fields):
 
 
 def handle_manhole_quote_form(fields):
-    """Handle a specific 'Manhole Quote Form'"""
+    """Handle the 'Manhole Quote Form' submission."""
     data = build_common_data(fields)
+
+    # Handle typo variations from Wix ("Privince/State")
+    data["Prov/State"] = fields.get("Province/State") or fields.get("Privince/State") or ""
+
+    # Set the product interest explicitly
     data["Products Interest"] = ["Manhole Aeration"]
-    print(f"🕳️ Manhole quote form received: {data['Name']}, {data['Email']}, {data['City']}, {data['Prov/State']}", flush=True)
+
+    # Extract specific manhole info
+    manhole_style = fields.get("What style of man hole does your hopper have?")
+    extra_info = fields.get(
+        "Provide any other information that will help us provide a quote.  "
+        "If possible provide the manhole dimensions to allow us to quote more accurately.",
+        ""
+    )
+
+    # Combine into a descriptive message
+    data["Message"] = (
+        f"Manhole Style: {manhole_style or 'N/A'}<br>"
+        f"Additional Info: {extra_info or 'N/A'}"
+    )
+
+    print(
+        f"🕳️ Manhole Quote → {data['Name']} | {data['Email']} | "
+        f"{data['City']}, {data['Prov/State']} | Style: {manhole_style}",
+        flush=True,
+    )
+
+    # Push to Odoo
     odoo_result = sync_to_odoo(data)
-    return {"status": "ok", "form": "Manhole Quote Form", "odoo": odoo_result}
+
+    return {
+        "status": "ok",
+        "form": "Manhole Quote Form",
+        "odoo": odoo_result,
+    }
+
 
 
 # --------------------------------------------------------------------
