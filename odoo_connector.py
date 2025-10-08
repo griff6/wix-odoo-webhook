@@ -714,7 +714,7 @@ def find_odoo_user_id(models, uid, user_name):
         print(f"Unexpected error finding user '{user_name}': {e}")
         return False
 
-def create_odoo_activity(models, uid, opportunity_id, user_id, summary, note):
+def create_odoo_activity_via_message(models, uid, opportunity_id, user_id, summary, note):
     """
     Creates an activity linked to an opportunity using activity_schedule().
     Works on Odoo SaaS — no ir.model access required.
