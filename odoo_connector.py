@@ -557,93 +557,162 @@ def get_or_create_opportunity_tags(models, uid, tags):
 
 
 def create_odoo_contact(data):
-    uid, models = connect_odoo()
-    if not uid: return None
-
-    tag_ids = get_or_create_tags(models, uid, data['Products Interest'])
-
-    country_id = False
-    state_id = False
-    prov_state_input = data['Prov/State'].strip()
-    print(f"DEBUG: In create_odoo_contact Prov/State is '{prov_state_input}'.")
-
-    if prov_state_input:
-        state_id = get_state_id(models, uid, prov_state_input)
-        
-        country_name = STATE_TO_COUNTRY_MAP.get(prov_state_input, None)
-        if country_name:
-            country_id = get_country_id(models, uid, country_name)
-        else:
-            print(f"DEBUG: Unknown Prov/State '{prov_state_input}', country will be left blank.")
-    else:
-        print("DEBUG: No Prov/State provided, country will be left blank.")
-
-    print(f"DEBUG: Country ID determined for contact: {country_id}")
-
     try:
-        contact_id = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD,
-            'res.partner', 'create', [{
-                'name': data['Name'],
-                'email': data['Email'],
-                'phone': data['Phone'],
-                'city': data['City'],
-                'state_id': state_id,
-                'country_id': country_id,
-                'category_id': [(6, 0, tag_ids)] if tag_ids else False
-            }])
+        uid, models = connect_odoo()
+        if not uid:
+            print("ERROR: Could not connect to Odoo.")
+            return False
+
+        print(f"DEBUG: In create_odoo_contact Prov/State is '{data.get('Prov/State')}'.")
+
+        # --- Normalize and find the state ---
+        normalized_state = normalize_state(data.get("Prov/State", ""))
+        print(f"DEBUG: Normalized state is '{normalized_state}'.")
+
+        state_id = False
+        country_id = False
+
+        if normalized_state:
+            state_record = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "res.country.state", "search_read",
+                [[("code", "=", normalized_state)]],
+                {"fields": ["id", "country_id"], "limit": 1},
+            )
+            if state_record:
+                state_id = state_record[0]["id"]
+                print(f"DEBUG: Found Odoo state ID {state_id} by code for '{normalized_state}'.")
+                # Also get the linked country ID from that state
+                if state_record[0].get("country_id"):
+                    country_id = state_record[0]["country_id"][0]
+                    print(f"DEBUG: Country ID derived from state: {country_id}")
+            else:
+                print(f"DEBUG: State '{normalized_state}' not found in Odoo.")
+
+        # --- Fallback country logic ---
+        if not country_id:
+            # Try to set Canada by default (or adapt to your region)
+            country = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "res.country", "search_read",
+                [[("code", "=", "CA")]],
+                {"fields": ["id"], "limit": 1},
+            )
+            if country:
+                country_id = country[0]["id"]
+                print(f"DEBUG: Defaulted to Canada (Country ID: {country_id})")
+            else:
+                print("DEBUG: Could not find country 'CA' in Odoo — leaving blank.")
+
+        print(f"DEBUG: Country ID determined for contact: {country_id}")
+
+        # --- Build the contact payload ---
+        contact_vals = {
+            "name": data["Name"],
+            "email": data.get("Email"),
+            "phone": data.get("Phone"),
+            "city": data.get("City"),
+            "state_id": state_id or False,
+            "country_id": country_id or False,
+        }
+
+        contact_id = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "res.partner", "create", [contact_vals]
+        )
         print(f"Contact created with ID: {contact_id}")
         return contact_id
-    except xmlrpc.client.Fault as e:
-        print(f"Odoo RPC Error creating contact: Code={e.faultCode}, Message={e.faultString}")
-        return None
+
     except Exception as e:
-        print(f"Unexpected error creating contact: {e}")
-        return None
+        print(f"ERROR creating contact: {e}")
+        return False
+
 
 def update_odoo_contact(contact_id, data):
     uid, models = connect_odoo()
-    if not uid: return False
+    if not uid:
+        print("❌ Failed to connect to Odoo for contact update.")
+        return False
 
-    tag_ids = get_or_create_tags(models, uid, data['Products Interest'])
+    tag_ids = get_or_create_tags(models, uid, data.get("Products Interest", []))
 
     country_id = False
     state_id = False
-    prov_state_input = data['Prov/State'].strip()
+    prov_state_input = (data.get("Prov/State") or "").strip()
 
     if prov_state_input:
-        state_id = get_state_id(models, uid, prov_state_input)
-        print(f"DEBUG: In update_odoo_contact Prov/State is '{prov_state_input}', state_id is '{state_id}'.")
+        # Normalize and find the state
+        normalized_state = normalize_state(prov_state_input)
+        print(f"DEBUG: In update_odoo_contact Prov/State is '{prov_state_input}', normalized to '{normalized_state}'.")
 
-        country_name = STATE_TO_COUNTRY_MAP.get(prov_state_input, None)
-        if country_name:
-            country_id = get_country_id(models, uid, country_name)
+        state_record = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "res.country.state", "search_read",
+            [[("code", "=", normalized_state)]],
+            {"fields": ["id", "country_id"], "limit": 1},
+        )
+
+        if state_record:
+            state_id = state_record[0]["id"]
+            print(f"DEBUG: Found Odoo state ID {state_id} by code for '{normalized_state}'.")
+            if state_record[0].get("country_id"):
+                country_id = state_record[0]["country_id"][0]
+                print(f"DEBUG: Country ID derived from state: {country_id}")
         else:
-            print(f"DEBUG: Unknown Prov/State '{prov_state_input}', country will be left blank for update.")
+            print(f"DEBUG: State '{normalized_state}' not found in Odoo.")
+
     else:
-        print("DEBUG: No Prov/State provided, country will be left blank for update.")
+        print("DEBUG: No Prov/State provided, skipping state lookup.")
+
+    # Fallback to default country (Canada)
+    if not country_id:
+        try:
+            country = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "res.country", "search_read",
+                [[("code", "=", "CA")]],
+                {"fields": ["id"], "limit": 1},
+            )
+            if country:
+                country_id = country[0]["id"]
+                print(f"DEBUG: Defaulted to Canada (Country ID: {country_id}) for update.")
+            else:
+                print("DEBUG: Could not find country 'CA' in Odoo — leaving blank.")
+        except Exception as e:
+            print(f"DEBUG: Could not set default country: {e}")
 
     print(f"DEBUG: Country ID determined for contact update: {country_id}")
 
     update_vals = {
-        'name': data['Name'],
-        'email': data['Email'],
-        'phone': data['Phone'],
-        'city': data['City'],
-        'state_id': state_id,
-        'country_id': country_id,
-        'category_id': [(6, 0, tag_ids)] if tag_ids else False
+        "name": data["Name"],
+        "email": data.get("Email"),
+        "phone": data.get("Phone"),
+        "city": data.get("City"),
+        "state_id": state_id or False,
+        "country_id": country_id or False,
+        "category_id": [(6, 0, tag_ids)] if tag_ids else False,
     }
+
     try:
-        models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD,
-            'res.partner', 'write', [[contact_id], update_vals])
-        print(f"Contact ID {contact_id} updated.")
+        models.execute_kw(
+            ODOO_DB,
+            uid,
+            ODOO_PASSWORD,
+            "res.partner",
+            "write",
+            [[contact_id], update_vals],
+        )
+        print(f"✅ Contact ID {contact_id} updated successfully.")
         return True
+
     except xmlrpc.client.Fault as e:
-        print(f"Odoo RPC Error updating contact {contact_id}: Code={e.faultCode}, Message={e.faultString}")
+        print(f"🚨 Odoo RPC Error updating contact {contact_id}: Code={e.faultCode}, Message={e.faultString}")
         return False
+
     except Exception as e:
         print(f"Unexpected error updating contact {contact_id}: {e}")
         return False
+
 
 def find_existing_contact(data):
     print("find_existing_contact() was called")
@@ -668,29 +737,87 @@ def find_existing_contact(data):
 
 def create_odoo_opportunity(opportunity_data):
     """
-    Creates a new opportunity in Odoo.
-    opportunity_data is a dictionary containing opportunity details,
-    e.g., {'name': 'Opportunity Name', 'partner_id': contact_id, 'user_id': sales_user_id}
+    Creates a new opportunity in Odoo, ensuring proper country/state resolution.
+    opportunity_data may include: name, partner_id, city, Prov/State, description, etc.
     """
     uid, models = connect_odoo()
     if not uid:
-        print("Failed to log in for opportunity creation.")
+        print("❌ Failed to connect for opportunity creation.")
         return None
+
     try:
+        # ---------------------------------------------------------------------
+        # Province/state normalization
+        # ---------------------------------------------------------------------
+        prov_state_input = (opportunity_data.get("Prov/State") or "").strip()
+        state_id = False
+        country_id = False
+
+        if prov_state_input:
+            normalized_state = normalize_state(prov_state_input)
+            print(f"DEBUG: In create_odoo_opportunity Prov/State is '{prov_state_input}', normalized to '{normalized_state}'.")
+
+            state_record = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "res.country.state", "search_read",
+                [[("code", "=", normalized_state)]],
+                {"fields": ["id", "country_id"], "limit": 1},
+            )
+
+            if state_record:
+                state_id = state_record[0]["id"]
+                print(f"DEBUG: Found Odoo state ID {state_id} for '{normalized_state}'.")
+                if state_record[0].get("country_id"):
+                    country_id = state_record[0]["country_id"][0]
+                    print(f"DEBUG: Derived country ID {country_id} from state.")
+            else:
+                print(f"DEBUG: State '{normalized_state}' not found in Odoo.")
+
+        # ---------------------------------------------------------------------
+        # Fallback: use Canada if country still not set
+        # ---------------------------------------------------------------------
+        if not country_id:
+            country = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "res.country", "search_read",
+                [[("code", "=", "CA")]],
+                {"fields": ["id"], "limit": 1},
+            )
+            if country:
+                country_id = country[0]["id"]
+                print(f"DEBUG: Defaulted to Canada (Country ID: {country_id}).")
+            else:
+                print("DEBUG: Could not find country 'CA' in Odoo — leaving blank.")
+
+        print(f"DEBUG: Final country_id={country_id}, state_id={state_id}")
+
+        # ---------------------------------------------------------------------
+        # Merge IDs into opportunity data
+        # ---------------------------------------------------------------------
+        opportunity_data["state_id"] = state_id or False
+        opportunity_data["country_id"] = country_id or False
+
+        # ---------------------------------------------------------------------
+        # Create the opportunity
+        # ---------------------------------------------------------------------
         new_opportunity_id = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
-            'crm.lead',
-            'create',
-            [opportunity_data]
+            "crm.lead", "create",
+            [opportunity_data],
         )
-        print(f"Opportunity created with ID: {new_opportunity_id}")
+        print(f"✅ Opportunity created with ID: {new_opportunity_id}")
         return new_opportunity_id
+
     except xmlrpc.client.Fault as fault:
-        print(f"Odoo RPC Error creating opportunity: Code={fault.faultCode}, Message={fault.faultString}")
+        print(
+            f"🚨 Odoo RPC Error creating opportunity: Code={fault.faultCode}, Message={fault.faultString}"
+        )
         return None
     except Exception as e:
         print(f"Unexpected error creating opportunity in Odoo: {e}")
         return None
+
+
 
 # --- NEW FUNCTION: Find Odoo User ID ---
 def find_odoo_user_id(models, uid, user_name):
