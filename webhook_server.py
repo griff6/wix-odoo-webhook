@@ -56,31 +56,123 @@ def handle_form():
 # --------------------------------------------------------------------
 def handle_quote_form(fields):
     """Handle 'Quote Form' submissions from Wix"""
+    # Step 1: Build base contact and location info
     data = build_common_data(fields)
-    print(f"📋 Quote form received: {data['Name']}, {data['Email']}, {data['City']}, {data['Prov/State']}", flush=True)
+
+    # Step 2: Extract quote-specific fields
+    name = data["Name"]
+    email = data["Email"]
+    city = data["City"]
+    province = data["Prov/State"]
+
+    products = fields.get("What products are you interested in?", "")
+    message_from_form = fields.get(
+        "Provide any other information that will help us provide a quote.", ""
+    )
+
+    # Step 3: Start building formatted HTML message
+    message_parts = []
+
+    if message_from_form:
+        message_parts.append(message_from_form.replace("\n", "<br>"))
+
+    if products:
+        message_parts.append(f"<b>Products Interested In:</b> {products}")
+
+    # Step 4: Append dealer info last
+    dealer_info = build_dealer_info(data)
+    if dealer_info:
+        dealer_html = (
+            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
+            + dealer_info.replace("\n", "<br>")
+        )
+        message_parts.append(dealer_html)
+
+    # Step 5: Combine and assign final HTML message
+    data["Message"] = "<br><br>".join([part for part in message_parts if part])
+
+    print(
+        f"📋 Quote Form → {name} | {email} | {city}, {province} | Products: {products}",
+        flush=True,
+    )
+
+    # Step 6: Push to Odoo
     odoo_result = sync_to_odoo(data)
-    return {"status": "ok", "form": "Quote Form", "odoo": odoo_result}
+
+    return {
+        "status": "ok",
+        "form": "Quote Form",
+        "odoo": odoo_result,
+    }
+
 
 
 def handle_contact_form(fields):
     """Handle a generic contact form"""
+    # Step 1: Build base data (contact, city/province, etc.)
     data = build_common_data(fields)
-    print(f"📩 Contact form from {data['Name']} <{data['Email']}> — {data['Message']}", flush=True)
+
+    # Step 2: Extract fields that might exist on the contact form
+    name = data["Name"]
+    email = data["Email"]
+    phone = data.get("Phone", "")
+    city = data["City"]
+    province = data["Prov/State"]
+
+    message_from_form = fields.get("Message") or fields.get(
+        "Provide any other information that will help us provide a quote.", ""
+    )
+
+    # Step 3: Build the message in HTML format
+    message_parts = []
+
+    if message_from_form:
+        message_parts.append(message_from_form.replace("\n", "<br>"))
+
+    # Optional — include phone if provided
+    if phone:
+        message_parts.append(f"<b>Phone:</b> {phone}")
+
+    # Step 4: Append dealer info last
+    dealer_info = build_dealer_info(data)
+    if dealer_info:
+        dealer_html = (
+            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
+            + dealer_info.replace("\n", "<br>")
+        )
+        message_parts.append(dealer_html)
+
+    # Step 5: Join all parts into one HTML-safe message
+    data["Message"] = "<br><br>".join([part for part in message_parts if part])
+
+    print(
+        f"📩 Contact Form → {name} | {email} | {city}, {province}",
+        flush=True,
+    )
+
+    # Step 6: Push to Odoo
     odoo_result = sync_to_odoo(data)
-    return {"status": "ok", "form": "Contact Form", "odoo": odoo_result}
+
+    return {
+        "status": "ok",
+        "form": "Contact Form",
+        "odoo": odoo_result,
+    }
+
 
 
 def handle_manhole_quote_form(fields):
     """Handle the 'Manhole Quote Form' submission."""
+    # Step 1: Build base data (contact info, etc.)
     data = build_common_data(fields)
 
     # Handle typo variations from Wix ("Privince/State")
     data["Prov/State"] = fields.get("Province/State") or fields.get("Privince/State") or ""
 
-    # Set the product interest explicitly
+    # Explicitly set product interest
     data["Products Interest"] = ["Manhole Aeration"]
 
-    # Extract specific manhole info
+    # Step 2: Extract manhole-specific fields
     manhole_style = fields.get("What style of man hole does your hopper have?")
     extra_info = fields.get(
         "Provide any other information that will help us provide a quote.  "
@@ -88,11 +180,30 @@ def handle_manhole_quote_form(fields):
         ""
     )
 
-    # Combine into a descriptive message
-    data["Message"] = (
-        f"Manhole Style: {manhole_style or 'N/A'}<br>"
-        f"Additional Info: {extra_info or 'N/A'}"
+    # Step 3: Build the main message (without dealer info yet)
+    message_parts = []
+
+    # Add any message from the form itself (if provided)
+    if data.get("Message"):
+        message_parts.append(data["Message"])
+
+    # Add formatted manhole quote info
+    message_parts.append(
+        f"<b>Manhole Style:</b> {manhole_style or 'N/A'}<br>"
+        f"<b>Additional Info:</b> {extra_info or 'N/A'}"
     )
+
+    # Step 4: Build and append dealer info last
+    dealer_info = build_dealer_info(data)
+    if dealer_info:
+        dealer_html = (
+            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
+            + dealer_info.replace("\n", "<br>")
+        )
+        message_parts.append(dealer_html)
+
+    # Step 5: Join all parts with <br><br> spacing for readability
+    data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
     print(
         f"🕳️ Manhole Quote → {data['Name']} | {data['Email']} | "
@@ -100,7 +211,7 @@ def handle_manhole_quote_form(fields):
         flush=True,
     )
 
-    # Push to Odoo
+    # Step 6: Push to Odoo
     odoo_result = sync_to_odoo(data)
 
     return {
