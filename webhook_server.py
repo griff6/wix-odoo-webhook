@@ -126,18 +126,27 @@ def build_common_data(fields):
         "Message": fields.get("Provide any other information that will help us provide a quote.", "")
     }
 
+    # --- Products ---
     raw_products = fields.get("What products are you interested in?", "")
     if isinstance(raw_products, str):
         data["Products Interest"] = [item.strip() for item in raw_products.split(",") if item.strip()]
     elif raw_products:
         data["Products Interest"] = list(raw_products)
 
-    # Append closest dealer info
+    # --- Append dealer info ---
     dealer_info = build_dealer_info(data)
     if dealer_info:
-        data["Message"] += f"\n\n--- Closest Dealer Recommendation ---\n{dealer_info}"
+        data["Message"] += (
+            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
+            + dealer_info.replace("\n", "<br>")
+        )
+
+    # 🔧 Important: Replace *after* everything has been appended
     data["Message"] = data["Message"].replace("\n", "<br>")
+
+    print(f"DEBUG: Final Message to send to Odoo:\n{data['Message']}", flush=True)
     return data
+
 
 
 # --------------------------------------------------------------------
