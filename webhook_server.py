@@ -209,17 +209,17 @@ def sync_to_odoo(data):
         # --- Optional: add follow-up activity ---
         al_id = find_odoo_user_id(models, uid, "Al Baraniuk")
         if al_id:
-            model_id = get_model_id(models, uid, "crm.lead")
-            if model_id:
-                activity_data = {
-                    "res_model_id": model_id,
-                    "res_id": opportunity_id,
-                    "user_id": al_id,
-                    "summary": "Follow up on email",
-                    "date_deadline": (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d"),
-                    "note": f"Follow-up for {data['Name']}",
-                }
-                create_odoo_activity(models, uid, activity_data)
+            activity_data = {
+                "res_model": "crm.lead",          # ✅ use model name instead of numeric ID
+                "res_id": opportunity_id,
+                "user_id": al_id,
+                "summary": "Follow up on email",
+                "date_deadline": datetime.now().strftime("%Y-%m-%d"),  # due now
+                "note": f"Follow-up for {data['Name']}",
+            }
+            create_odoo_activity(models, uid, activity_data)
+            print(f"🗓️ Created immediate activity for opportunity {opportunity_id}", flush=True)
+
 
         opportunity_url = f"{ODOO_URL}/web#id={opportunity_id}&model=crm.lead"
         print(f"✅ Odoo sync complete — {opportunity_url}", flush=True)
