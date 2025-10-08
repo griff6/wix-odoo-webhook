@@ -17,38 +17,44 @@ geolocator = Nominatim(user_agent="WavcorWebhook")
 def handle_form():
     print("🔔 Received webhook request", flush=True)
     try:
-        # Log the raw request first
-        print("Request headers:", dict(request.headers))
-        print("Raw body:", request.data.decode("utf-8"))
+        # Log request headers and raw body
+        print("Request headers:", dict(request.headers), flush=True)
+        raw_body = request.data.decode("utf-8")
+        print("Raw body:", raw_body, flush=True)
 
+        # Parse JSON first
         data = request.get_json(force=True)
+        print("📦 Incoming JSON Keys:", list(data.keys()), flush=True)
         print("✅ Parsed JSON data:", json.dumps(data, indent=2), flush=True)
 
+        # Handle nested data structure if needed
+        payload = data.get("debug_echo", data)
+
         # Example expected keys (update if Wix uses different names)
-        name = f"{data.get('firstName', '')} {data.get('lastName', '')}".strip()
-        email = data.get("email")
-        phone = data.get("phone")
-        city = data.get("city")
-        province = data.get("provinceState")
-        products = data.get("productInterest", "")
-        message = data.get("message", "")
+        name = f"{payload.get('firstName', '')} {payload.get('lastName', '')}".strip() or payload.get("name")
+        email = payload.get("email")
+        phone = payload.get("phone")
+        city = payload.get("city")
+        province = payload.get("provinceState") or payload.get("province")
+        products = payload.get("productInterest", "") or payload.get("products", "")
+        message = payload.get("message", "")
 
         print(f"DEBUG parsed fields → Name: {name}, Email: {email}, City: {city}, Province: {province}", flush=True)
         print(f"DEBUG Message: {message}", flush=True)
 
-        # --- Insert your normal Odoo logic here ---
-        # For testing, just return what was received:
+        # --- Return parsed info for testing ---
         return jsonify({
             "status": "ok",
-            "debug_echo": {
+            "parsed_fields": {
                 "name": name,
                 "email": email,
+                "phone": phone,
                 "city": city,
                 "province": province,
                 "products": products,
                 "message": message
             }
-        })
+        }), 200
 
     except Exception as e:
         print("❌ Exception occurred:", flush=True)
@@ -58,4 +64,4 @@ def handle_form():
 
 if __name__ == "__main__":
     print("🚀 Flask webhook server starting...", flush=True)
-    app.run(host="0.0.0.0", port=8080)
+    app.run(host="0.0.0.0", port=8080, debug=True)
