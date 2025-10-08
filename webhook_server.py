@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-import json, traceback, sys
+import json, traceback
 from datetime import datetime, timedelta
 from odoo_connector import (
     create_odoo_contact, update_odoo_contact, find_existing_contact,
@@ -15,24 +15,16 @@ geolocator = Nominatim(user_agent="WavcorWebhook")
 
 @app.route("/wix_form_webhook", methods=["POST"])
 def handle_form():
-    print("🔔 Received webhook request", file=sys.stdout, flush=True)
-    app.logger.info("🔔 Received webhook request")
+    print("🔔 Received webhook request", flush=True)
     try:
-        # Log request headers and raw data
-        headers = dict(request.headers)
-        print("Request headers:", headers, file=sys.stdout, flush=True)
-        app.logger.info(f"Request headers: {headers}")
+        # Log the raw request first
+        print("Request headers:", dict(request.headers))
+        print("Raw body:", request.data.decode("utf-8"))
 
-        raw_body = request.data.decode("utf-8")
-        print("Raw body:", raw_body, file=sys.stdout, flush=True)
-        app.logger.info(f"Raw body: {raw_body}")
-
-        # Try parsing JSON
         data = request.get_json(force=True)
-        print("✅ Parsed JSON data:", json.dumps(data, indent=2), file=sys.stdout, flush=True)
-        app.logger.info(f"✅ Parsed JSON data: {json.dumps(data, indent=2)}")
+        print("✅ Parsed JSON data:", json.dumps(data, indent=2), flush=True)
 
-        # Extract fields (adjust names if needed)
+        # Example expected keys (update if Wix uses different names)
         name = f"{data.get('firstName', '')} {data.get('lastName', '')}".strip()
         email = data.get("email")
         phone = data.get("phone")
@@ -41,10 +33,11 @@ def handle_form():
         products = data.get("productInterest", "")
         message = data.get("message", "")
 
-        print(f"DEBUG parsed fields → Name: {name}, Email: {email}, City: {city}, Province: {province}", file=sys.stdout, flush=True)
-        print(f"DEBUG Message: {message}", file=sys.stdout, flush=True)
+        print(f"DEBUG parsed fields → Name: {name}, Email: {email}, City: {city}, Province: {province}", flush=True)
+        print(f"DEBUG Message: {message}", flush=True)
 
-        # Echo data back for testing
+        # --- Insert your normal Odoo logic here ---
+        # For testing, just return what was received:
         return jsonify({
             "status": "ok",
             "debug_echo": {
@@ -55,16 +48,14 @@ def handle_form():
                 "products": products,
                 "message": message
             }
-        }), 200
+        })
 
     except Exception as e:
-        print("❌ Exception occurred:", file=sys.stdout, flush=True)
-        traceback.print_exc(file=sys.stdout)
-        sys.stdout.flush()
-        app.logger.error(f"Exception: {e}")
+        print("❌ Exception occurred:", flush=True)
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 if __name__ == "__main__":
-    print("🚀 Flask webhook server starting...", file=sys.stdout, flush=True)
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    print("🚀 Flask webhook server starting...", flush=True)
+    app.run(host="0.0.0.0", port=8080)
