@@ -717,39 +717,63 @@ def find_odoo_user_id(models, uid, user_name):
 # --- NEW FUNCTION: Create Odoo Activity ---
 def create_odoo_activity(models, uid, activity_data):
     """
-    Creates a new activity in Odoo.
-    activity_data is a dictionary containing activity details.
+    Creates a new activity in Odoo (mail.activity).
+    Accepts either 'res_model' or 'res_model_id' for linking to a record.
+    Automatically adds the 'To-Do' activity type if not provided.
+    Works in Odoo SaaS (no ir.model admin access required).
     """
     try:
-        # Get the ID for the 'Follow up on email' activity type
-        # It's good practice to get activity type by name, as IDs can vary
-        activity_type = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD,
-            'mail.activity.type', 'search_read',
-            [[('name', '=', 'To-Do')]], {'fields': ['id'], 'limit': 1})
-        
-        activity_type_id = activity_type[0]['id'] if activity_type else False
+        # ---------------------------------------------------------------------
+        # Ensure an activity_type_id is set (default to "To-Do")
+        # ---------------------------------------------------------------------
+        if "activity_type_id" not in activity_data or not activity_data["activity_type_id"]:
+            activity_type = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "mail.activity.type", "search_read",
+                [[("name", "=", "To-Do")]],
+                {"fields": ["id"], "limit": 1},
+            )
+            if activity_type:
+                activity_data["activity_type_id"] = activity_type[0]["id"]
+            else:
+                print("⚠️  'To-Do' activity type not found; defaulting to ID=1")
+                activity_data["activity_type_id"] = 1
 
-        if not activity_type_id:
-            print("ERROR (connector): 'Email' activity type not found in Odoo. Cannot create activity.")
-            return False
+        # ---------------------------------------------------------------------
+        # Prefer using res_model (string) — Odoo resolves it internally
+        # ---------------------------------------------------------------------
+        if "res_model" not in activity_data and "res_model_id" not in activity_data:
+            raise ValueError("Activity must include either 'res_model' or 'res_model_id'.")
 
-        # Prepare activity data, adding activity_type_id
-        activity_data['activity_type_id'] = activity_type_id
+        # If only res_model provided, explicitly set res_model_id to None
+        # to satisfy older Odoo validation but still allow SaaS compatibility
+        if "res_model" in activity_data and "res_model_id" not in activity_data:
+            activity_data["res_model_id"] = None
 
+        # ---------------------------------------------------------------------
+        # Create the activity
+        # ---------------------------------------------------------------------
         new_activity_id = models.execute_kw(
-            ODOO_DB, uid, ODOO_PASSWORD,
-            'mail.activity',
-            'create',
-            [activity_data]
+            ODOO_DB,
+            uid,
+            ODOO_PASSWORD,
+            "mail.activity",
+            "create",
+            [activity_data],
         )
-        print(f"Activity created with ID: {new_activity_id}")
+
+        print(f"✅ Activity created with ID: {new_activity_id}")
         return new_activity_id
+
     except xmlrpc.client.Fault as fault:
-        print(f"Odoo RPC Error creating activity: Code={fault.faultCode}, Message={fault.faultString}")
+        print(
+            f"Odoo RPC Error creating activity: Code={fault.faultCode}, Message={fault.faultString}"
+        )
         return False
     except Exception as e:
         print(f"Unexpected error creating activity in Odoo: {e}")
         return False
+
     
 def find_existing_opportunity(opportunity_name):
     """
