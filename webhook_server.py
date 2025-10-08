@@ -8,7 +8,7 @@ from odoo_connector import (
     create_odoo_opportunity, connect_odoo, get_or_create_opportunity_tags,
     find_odoo_user_id, create_odoo_activity, get_model_id,
     find_closest_dealer, find_existing_opportunity, update_odoo_opportunity,
-    post_internal_note_to_opportunity, ODOO_URL, normalize_state
+    post_internal_note_to_opportunity, ODOO_URL, normalize_state, create_odoo_activity_via_message
 )
 
 app = Flask(__name__)
@@ -209,15 +209,23 @@ def sync_to_odoo(data):
         # --- Optional: add follow-up activity ---
         al_id = find_odoo_user_id(models, uid, "Al Baraniuk")
         if al_id:
-            activity_data = {
-                "res_model": "crm.lead",          # ✅ use model name instead of numeric ID
-                "res_id": opportunity_id,
-                "user_id": al_id,
-                "summary": "Follow up on email",
-                "date_deadline": datetime.now().strftime("%Y-%m-%d"),  # due now
-                "note": f"Follow-up for {data['Name']}",
-            }
-            create_odoo_activity(models, uid, activity_data)
+            #activity_data = {
+            #    "res_model": "crm.lead",          # ✅ use model name instead of numeric ID
+            #    "res_id": opportunity_id,
+            #    "user_id": al_id,
+            #    "summary": "Follow up on email",
+            #    "date_deadline": datetime.now().strftime("%Y-%m-%d"),  # due now
+            #    "note": f"Follow-up for {data['Name']}",
+            #}
+            #create_odoo_activity(models, uid, activity_data)
+            create_odoo_activity_via_message(
+                models,
+                uid,
+                opportunity_id,
+                al_id,
+                "Follow up on email",
+                f"Follow-up for {data['Name']}",
+            )
             print(f"🗓️ Created immediate activity for opportunity {opportunity_id}", flush=True)
 
 

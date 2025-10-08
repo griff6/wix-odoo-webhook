@@ -714,6 +714,37 @@ def find_odoo_user_id(models, uid, user_name):
         print(f"Unexpected error finding user '{user_name}': {e}")
         return False
 
+def create_odoo_activity_via_message(models, uid, opportunity_id, user_id, summary, note):
+    try:
+        # Get the "To-Do" activity type ID
+        activity_type = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "mail.activity.type", "search_read",
+            [[("name", "=", "To-Do")]], {"fields": ["id"], "limit": 1},
+        )
+        activity_type_id = activity_type[0]["id"] if activity_type else 1
+
+        # Post a message that creates the activity contextually
+        result = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "crm.lead", "message_post",
+            [opportunity_id],
+            {
+                "body": note,
+                "subject": summary,
+                "message_type": "comment",
+                "subtype_id": 1,  # Internal note
+                "activity_type_id": activity_type_id,
+                "user_id": user_id,
+            },
+        )
+        print(f"✅ Activity created via message_post: {result}", flush=True)
+        return result
+    except Exception as e:
+        print(f"❌ Failed to create activity via message_post: {e}", flush=True)
+        return False
+
+
 # --- NEW FUNCTION: Create Odoo Activity ---
 def create_odoo_activity(models, uid, activity_data):
     """
