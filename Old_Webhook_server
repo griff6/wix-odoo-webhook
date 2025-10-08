@@ -1,0 +1,195 @@
+from flask import Flask, request, jsonify
+import json, traceback
+from datetime import datetime, timedelta
+import time
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+from odoo_connector import (
+    create_odoo_contact,
+    update_odoo_contact,
+    find_existing_contact,
+    create_odoo_opportunity,
+    connect_odoo,
+    get_or_create_opportunity_tags,
+    find_odoo_user_id,
+    create_odoo_activity,
+    get_model_id,
+    find_closest_dealer,
+    find_existing_opportunity,
+    update_odoo_opportunity,
+    post_internal_note_to_opportunity, # Ensure this is imported if you added it previously
+    ODOO_URL,
+    normalize_state
+)
+
+app = Flask(__name__)
+geolocator = Nominatim(user_agent="WavcorWebhook")
+
+@app.route("/wix_form_webhook", methods=["POST"])
+def handle_form():
+    print("🔔 Received webhook request", flush=True)
+    try:
+        raw_data = request.get_json(force=True)
+        print("✅ Raw incoming JSON:", json.dumps(raw_data, indent=2), flush=True)
+
+        # --- Extract and flatten the data ---
+        data = raw_data.get("data", {})
+        form_name = data.get("formName", "Unknown Form")
+        submissions = data.get("submissions", [])
+
+        # Turn submissions into a dict: { "label": "value" }
+        fields = {item["label"].strip(): item.get("value", "").strip() for item in submissions}
+
+        print(f"🧾 Parsed Form: {form_name}", flush=True)
+        print(f"🧩 Fields: {json.dumps(fields, indent=2)}", flush=True)
+
+        # --- Handle different forms based on name ---
+        if form_name == "Quote Form":
+            result = handle_quote_form(fields)
+        elif form_name == "Contact Form":
+            result = handle_contact_form(fields)
+        elif form_name == "Manhole Quote Form":
+            result = handle_manhole_quote_form(fields)
+        else:
+            print(f"⚠️ Unknown form type: {form_name}", flush=True)
+            result = {"status": "ignored", "reason": f"Unhandled form '{form_name}'"}
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        print("❌ Exception occurred:", flush=True)
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# --- Form-specific handlers ---
+
+def handle_quote_form(fields):
+    """Process the 'Quote Form' submissions"""
+    name = f"{fields.get('First name', '')} {fields.get('Last name', '')}".strip()
+    email = fields.get("Email")
+    phone = fields.get("Phone")
+    city = fields.get("City")
+    province = fields.get("Province/State")
+    products = fields.get("What products are you interested in?")
+    message = fields.get("Provide any other information that will help us provide a quote.")
+
+    print(f"📋 Quote form received: {name}, {email}, {city}, {province}, {products}", flush=True)
+
+    # 🔧 TODO: Insert your existing Odoo contact/opportunity logic here
+    # e.g. create_odoo_contact({...}), create_odoo_opportunity({...})
+
+    return {
+        "status": "ok",
+        "type": "Quote Form",
+        "parsed": {
+            "name": name,
+            "email": email,
+            "city": city,
+            "province": province,
+            "products": products,
+            "message": message,
+        },
+    }
+
+def handle_contact_form(fields):
+    """Process a different form, e.g., 'Contact Form'"""
+    data = {
+        "Name": "", "Email": "", "Phone": "", "City": "", "Prov/State": "",
+        "Products Interest": [], "Message": ""
+    }
+    data["Name"] = f"{fields.get('First name', '')} {fields.get('Last name', '')}".strip()
+    data["Email"] = fields.get("Email")
+    data["Phone"] = fields.get("Phone")
+    data["City"] = fields.get("City")
+    data["Prov/State"] = fields.get("Province/State")
+    raw_products = fields.get("What products are you interested in?", "")
+    if isinstance(raw_products, str):
+        data["Products Interest"] = [item.strip() for item in raw_products.split(",") if item.strip()]
+    else:
+        # In case Wix ever sends an array instead of a string
+        data["Products Interest"] = list(raw_products) if raw_products else []
+    data["Message"] = fields.get("Provide any other information that will help us provide a quote.")
+
+    print(f"📩 Contact form from {data['Name']} <{data['Email']}> — {data['Message']}", flush=True)
+
+    # 🔧 TODO: Add contact logic here
+    dealer_info_for_append = ""
+    customer_lat, customer_lon = None, None
+    if data['City'] and data['Prov/State']:
+        customer_lat, customer_lon = get_lat_lon_from_address(data['City'], data['Prov/State'])
+
+    if customer_lat is not None and customer_lon is not None:
+        closest_dealer = find_closest_dealer(customer_lat, customer_lon)
+        if closest_dealer:
+            dealer_info_for_append = (f"Closest Dealer: {closest_dealer['Location']}\n"
+                                      f"Contact: {closest_dealer['Contact']}\n"
+                                      f"Phone: {closest_dealer['Phone']}\n"
+                                      f"Distance: {closest_dealer['Distance_km']} km")
+
+    data["Message"] += ("\n\n" + dealer_info_for_append) if dealer_info_for_append else ""
+    data["Message"] = data["Message"].replace('\n', '<br>')
+
+def handle_manhole_quote_form(fields):
+    """Process the 'Manhole Quote Form' submissions"""
+    name = f"{fields.get('First name', '')} {fields.get('Last name', '')}".strip()
+    email = fields.get("Email")
+    phone = fields.get("Phone")
+    city = fields.get("City")
+    province = fields.get("Province/State")
+    manhole_type = fields.get("Manhole Type")
+    message = fields.get("Provide any other information that will help us provide a quote.")
+
+    print(f"🕳️ Manhole quote form received: {name}, {email}, {city}, {province}, {manhole_type}", flush=True)
+
+    # 🔧 TODO: Insert your existing Odoo contact/opportunity logic here
+    # e.g. create_odoo_contact({...}), create_odoo_opportunity({...})
+
+    return {
+        "status": "ok",
+        "type": "Manhole Quote Form",
+        "parsed": {
+            "name": name,
+            "email": email,
+            "city": city,
+            "province": province,
+            "manhole_type": manhole_type,
+            "message": message,
+        },
+    }
+
+def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
+    """
+    Geocodes a city and province/state to get its latitude and longitude.
+    Includes basic retry logic.
+    """
+    full_address = f"{city}, {province_state}, {country}"
+    print(f"DEBUG: Attempting to geocode: {full_address} (Attempt {attempt})")
+    try:
+        location = geolocator.geocode(full_address, timeout=10)
+        if location:
+            print(f"DEBUG: Geocoded successfully. Lat: {location.latitude}, Lon: {location.longitude}")
+            return location.latitude, location.longitude
+        else:
+            print(f"WARNING: Could not geocode '{full_address}'. Location not found.")
+            return None, None
+    except GeocoderTimedOut:
+        print(f"WARNING: Geocoding service timed out for '{full_address}'. Retrying in 2 seconds...")
+        time.sleep(2)
+        if attempt < 3:
+            return get_lat_lon_from_address(city, province_state, country, attempt + 1)
+        else:
+            print(f"ERROR: Geocoding timed out after multiple attempts for '{full_address}'.")
+            return None, None
+    except GeocoderServiceError as e:
+        print(f"ERROR: Geocoding service error for '{full_address}': {e}")
+        return None, None
+    except Exception as e:
+        print(f"ERROR: An unexpected error occurred during geocoding for '{full_address}': {e}")
+        return None, None
+
+
+
+if __name__ == "__main__":
+    print("🚀 Flask webhook server starting...", flush=True)
+    app.run(host="0.0.0.0", port=8080, debug=True)
