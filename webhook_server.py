@@ -352,6 +352,8 @@ def sync_to_odoo(data):
                 "partner_id": contact_id,
                 "description": message_html,
                 "tag_ids": [(6, 0, opportunity_tag_ids)] if opportunity_tag_ids else False,
+                "City": data.get("City"),
+                "Prov/State": data.get("Prov/State"),
             }
             opportunity_id = create_odoo_opportunity(opp_data)
 
