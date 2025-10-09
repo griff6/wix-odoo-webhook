@@ -7,6 +7,7 @@ import math
 from typing import Optional, Union
 import re
 import string
+import traceback
 
 ODOO_URL = 'https://wavcor-international-inc2.odoo.com'
 #ODOO_URL = 'https://wavcor-test-2025-07-20.odoo.com'
@@ -815,7 +816,8 @@ def create_odoo_opportunity(opportunity_data):
         )
         return None
     except Exception as e:
-        print(f"Unexpected error creating opportunity in Odoo: {e}")
+        print("❌ Unexpected error creating opportunity in Odoo:", flush=True)
+        traceback.print_exc()
         return None
 
 
