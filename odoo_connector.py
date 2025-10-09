@@ -750,6 +750,7 @@ def create_odoo_opportunity(opportunity_data):
         # Province/state normalization
         # ---------------------------------------------------------------------
         prov_state_input = (opportunity_data.get("Prov/State") or "").strip()
+        city_value = opportunity_data.get("city") or opportunity_data.get("City") or ""
         state_id = False
         country_id = False
 
