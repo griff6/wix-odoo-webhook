@@ -119,21 +119,22 @@ def handle_contact_form(fields):
     city = data["City"]
     province = data["Prov/State"]
 
-    message_from_form = fields.get("Message") or fields.get(
-        "Provide any other information that will help us provide a quote.", ""
-    )
+    # Step 3: Extract user-entered message text safely
+    message_value = (
+        fields.get("Write a message")
+        or fields.get("Message")
+        or fields.get("Comments")
+        or ""
+    ).strip()
 
-    # Step 3: Build the message in HTML format
+    # Step 4: Build the message in HTML format
     message_parts = []
 
-    if message_from_form:
-        message_parts.append(message_from_form.replace("\n", "<br>"))
+    # Add message text
+    if message_value:
+        message_parts.append(message_value.replace("\n", "<br>"))
 
-    # Optional — include phone if provided
-    if phone:
-        message_parts.append(f"<b>Phone:</b> {phone}")
-
-    # Step 4: Append dealer info last
+    # Step 5: Append dealer info last
     dealer_info = build_dealer_info(data)
     if dealer_info:
         dealer_html = (
@@ -142,7 +143,7 @@ def handle_contact_form(fields):
         )
         message_parts.append(dealer_html)
 
-    # Step 5: Join all parts into one HTML-safe message
+    # Step 6: Combine all parts into one clean HTML message
     data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
     print(
@@ -150,7 +151,10 @@ def handle_contact_form(fields):
         flush=True,
     )
 
-    # Step 6: Push to Odoo
+    # Prevent random tag creation from message text
+    data["Products Interest"] = []
+
+    # Step 7: Push to Odoo
     odoo_result = sync_to_odoo(data)
 
     return {
@@ -158,6 +162,7 @@ def handle_contact_form(fields):
         "form": "Contact Form",
         "odoo": odoo_result,
     }
+
 
 
 
