@@ -796,12 +796,14 @@ def create_odoo_opportunity(opportunity_data):
         # ---------------------------------------------------------------------
         # Merge IDs into opportunity data
         # ---------------------------------------------------------------------
+        opportunity_data["city"] = city_value
         opportunity_data["state_id"] = state_id or False
         opportunity_data["country_id"] = country_id or False
 
         # ---------------------------------------------------------------------
         # Create the opportunity
         # ---------------------------------------------------------------------
+        opportunity_data.pop("Prov/State", None)
         new_opportunity_id = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             "crm.lead", "create",
