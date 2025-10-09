@@ -358,6 +358,7 @@ def sync_to_odoo(data):
             print(f"DEBUG: About to call create_odoo_opportunity with data: {json.dumps(opp_data, indent=2)}", flush=True)
             opportunity_id = create_odoo_opportunity(opp_data)
             print(f"DEBUG: create_odoo_opportunity() returned: {opportunity_id}", flush=True)
+            
 
         if not opportunity_id:
             return {"status": "error", "message": "Opportunity create/update failed"}
