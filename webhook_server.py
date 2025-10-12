@@ -15,16 +15,44 @@ app = Flask(__name__)
 geolocator = Nominatim(user_agent="WavcorWebhook")
 
 # --------------------------------------------------------------------
-# 1️⃣  Flask entrypoint
+# 1️⃣  Flask entrypoint with duplicate protection
 # --------------------------------------------------------------------
+processed_submissions = set()
+
 @app.route("/wix_form_webhook", methods=["POST"])
-def handle_form():
+def wix_form_webhook():
+    """Main webhook entrypoint for Wix forms"""
     print("🔔 Received webhook request", flush=True)
     try:
-        raw_data = request.get_json(force=True)
-        print("✅ Raw incoming JSON:", json.dumps(raw_data, indent=2), flush=True)
+        payload = request.get_json(force=True)
+        print("✅ Raw incoming JSON:", json.dumps(payload, indent=2), flush=True)
 
-        data = raw_data.get("data", {})
+        # --- Extract submissionId for deduplication ---
+        submission_id = payload.get("data", {}).get("submissionId")
+        if not submission_id:
+            print("⚠️ No submissionId found — skipping dedup check", flush=True)
+        else:
+            if submission_id in processed_submissions:
+                print(f"⚠️ Duplicate submission ignored: {submission_id}", flush=True)
+                return jsonify({"status": "duplicate_ignored"}), 200
+            processed_submissions.add(submission_id)
+
+        # --- Process the form ---
+        return handle_form(payload)
+
+    except Exception as e:
+        print(f"❌ Error processing webhook: {e}", flush=True)
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+# --------------------------------------------------------------------
+# 2️⃣  Central form dispatcher
+# --------------------------------------------------------------------
+def handle_form(payload):
+    """Handles routing based on formName field in Wix payload"""
+    try:
+        data = payload.get("data", {})
         form_name = data.get("formName", "Unknown Form")
         submissions = data.get("submissions", [])
         fields = {item["label"].strip(): item.get("value", "").strip() for item in submissions}
@@ -32,7 +60,7 @@ def handle_form():
         print(f"🧾 Parsed Form: {form_name}", flush=True)
         print(f"🧩 Fields: {json.dumps(fields, indent=2)}", flush=True)
 
-        # Route by form name
+        # --- Route based on form name ---
         if form_name == "Quote Form":
             result = handle_quote_form(fields)
         elif form_name == "Contact Form":
@@ -46,10 +74,9 @@ def handle_form():
         return jsonify(result), 200
 
     except Exception as e:
-        print("❌ Exception occurred:", flush=True)
+        print("❌ Exception occurred in handle_form:", flush=True)
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
-
 
 # --------------------------------------------------------------------
 # 2️⃣  Form Handlers

@@ -718,7 +718,7 @@ def update_odoo_contact(contact_id, data):
 def find_existing_contact(data):
     print("find_existing_contact() was called")
     uid, models = connect_odoo()
-    domain = [('name', 'ilike', data['Name'])]
+    domain = ["|", ("name", "ilike", name.strip()), ("email", "=", email.lower())]
     
     print(f"Searching for name ilike: '{data['Name']}'")
     
