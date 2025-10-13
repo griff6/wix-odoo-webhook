@@ -716,25 +716,53 @@ def update_odoo_contact(contact_id, data):
 
 
 def find_existing_contact(data):
-    #print("find_existing_contact() was called")
+    """
+    Searches Odoo for an existing contact by name or email.
+    Returns a dict with id, name, email, phone if found; otherwise None.
+    """
     uid, models = connect_odoo()
-    domain = ["|", ("name", "ilike", name.strip()), ("email", "=", email.lower())]
-    
-    #print(f"Searching for name ilike: '{data['Name']}'")
-    
+    if not uid:
+        print("Failed to log in to Odoo for contact search.")
+        return None
+
     try:
-        existing = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD,
-            'res.partner', 'search_read',
-            [domain], {'fields': ['id', 'name', 'email', 'phone'], 'limit': 1})
-        
-        #print("Found result:", existing)
-        return existing[0] if existing else None
-    except xmlrpc.client.Fault as e:
-        print(f"Odoo RPC Error finding contact: Code={e.faultCode}, Message={e.faultString}")
+        name = (data.get("Name") or "").strip()
+        email = (data.get("Email") or "").strip().lower()
+
+        if not name and not email:
+            print("⚠️ No name or email provided for contact search.")
+            return None
+
+        domain = []
+        if name and email:
+            domain = ["|", ("name", "ilike", name), ("email", "=", email)]
+        elif name:
+            domain = [("name", "ilike", name)]
+        elif email:
+            domain = [("email", "=", email)]
+
+        print(f"Searching for existing contact: {domain}", flush=True)
+
+        result = models.execute_kw(
+            ODOO_DB,
+            uid,
+            ODOO_PASSWORD,
+            "res.partner",
+            "search_read",
+            [domain],
+            {"fields": ["id", "name", "email", "phone"], "limit": 1},
+        )
+
+        if result:
+            print(f"Found result: {result}", flush=True)
+            return result[0]
         return None
+
     except Exception as e:
-        print(f"Unexpected error finding contact: {e}")
+        print(f"❌ Error in find_existing_contact: {e}", flush=True)
+        traceback.print_exc()
         return None
+
 
 def create_odoo_opportunity(opportunity_data):
     """
