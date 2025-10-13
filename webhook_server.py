@@ -3,6 +3,7 @@ import json, traceback, time
 from datetime import datetime, timedelta
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+from datetime import datetime, timedelta
 from odoo_connector import (
     create_odoo_contact, update_odoo_contact, find_existing_contact,
     create_odoo_opportunity, connect_odoo, get_or_create_opportunity_tags,
@@ -17,7 +18,9 @@ geolocator = Nominatim(user_agent="WavcorWebhook")
 # --------------------------------------------------------------------
 # 1️⃣  Flask entrypoint with duplicate protection
 # --------------------------------------------------------------------
-processed_submissions = set()
+
+# Store submissionId + timestamp (instead of plain set)
+processed_submissions = {}
 
 @app.route("/wix_form_webhook", methods=["POST"])
 def wix_form_webhook():
@@ -25,17 +28,25 @@ def wix_form_webhook():
     print("🔔 Received webhook request", flush=True)
     try:
         payload = request.get_json(force=True)
-        print("✅ Raw incoming JSON:", json.dumps(payload, indent=2), flush=True)
+        #print("✅ Raw incoming JSON:", json.dumps(payload, indent=2), flush=True)
 
         # --- Extract submissionId for deduplication ---
         submission_id = payload.get("data", {}).get("submissionId")
-        if not submission_id:
-            print("⚠️ No submissionId found — skipping dedup check", flush=True)
-        else:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(minutes=10)
+
+        # 🧹 Clean out old entries (>10 minutes old)
+        for sid, ts in list(processed_submissions.items()):
+            if ts < cutoff:
+                del processed_submissions[sid]
+
+        if submission_id:
             if submission_id in processed_submissions:
                 print(f"⚠️ Duplicate submission ignored: {submission_id}", flush=True)
                 return jsonify({"status": "duplicate_ignored"}), 200
-            processed_submissions.add(submission_id)
+            processed_submissions[submission_id] = now
+        else:
+            print("⚠️ No submissionId found — skipping dedup check", flush=True)
 
         # --- Process the form ---
         return handle_form(payload)
@@ -44,6 +55,7 @@ def wix_form_webhook():
         print(f"❌ Error processing webhook: {e}", flush=True)
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
+
 
 
 # --------------------------------------------------------------------
@@ -118,10 +130,10 @@ def handle_quote_form(fields):
     # Step 5: Combine and assign final HTML message
     data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
-    print(
-        f"📋 Quote Form → {name} | {email} | {city}, {province} | Products: {products}",
-        flush=True,
-    )
+    #print(
+    #    f"📋 Quote Form → {name} | {email} | {city}, {province} | Products: {products}",
+    #    flush=True,
+    #)
 
     # Step 6: Push to Odoo
     odoo_result = sync_to_odoo(data)
@@ -173,10 +185,10 @@ def handle_contact_form(fields):
     # Step 6: Combine all parts into one clean HTML message
     data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
-    print(
-        f"📩 Contact Form → {name} | {email} | {city}, {province}",
-        flush=True,
-    )
+    #print(
+    #    f"📩 Contact Form → {name} | {email} | {city}, {province}",
+    #    flush=True,
+    #)
 
     # Prevent random tag creation from message text
     data["Products Interest"] = []
@@ -237,11 +249,11 @@ def handle_manhole_quote_form(fields):
     # Step 5: Join all parts with <br><br> spacing for readability
     data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
-    print(
-        f"🕳️ Manhole Quote → {data['Name']} | {data['Email']} | "
-        f"{data['City']}, {data['Prov/State']} | Style: {manhole_style}",
-        flush=True,
-    )
+    #print(
+    #    f"🕳️ Manhole Quote → {data['Name']} | {data['Email']} | "
+    #    f"{data['City']}, {data['Prov/State']} | Style: {manhole_style}",
+    #    flush=True,
+    #)
 
     # Step 6: Push to Odoo
     odoo_result = sync_to_odoo(data)
@@ -287,7 +299,7 @@ def build_common_data(fields):
     # 🔧 Important: Replace *after* everything has been appended
     data["Message"] = data["Message"].replace("\n", "<br>")
 
-    print(f"DEBUG: Final Message to send to Odoo:\n{data['Message']}", flush=True)
+    #print(f"DEBUG: Final Message to send to Odoo:\n{data['Message']}", flush=True)
     return data
 
 
@@ -316,7 +328,7 @@ def build_dealer_info(data):
 def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
     """Geocode city+province to latitude/longitude, with retries"""
     full_address = f"{city}, {province_state}, {country}"
-    print(f"DEBUG: Geocoding {full_address} (attempt {attempt})", flush=True)
+    #print(f"DEBUG: Geocoding {full_address} (attempt {attempt})", flush=True)
     try:
         location = geolocator.geocode(full_address, timeout=10)
         if location:
@@ -387,9 +399,9 @@ def sync_to_odoo(data):
                 "city": data.get("City") or False,
                 "Prov/State": data.get("Prov/State") or "",
             }
-            print(f"DEBUG: About to call create_odoo_opportunity with data: {json.dumps(opp_data, indent=2)}", flush=True)
+            #print(f"DEBUG: About to call create_odoo_opportunity with data: {json.dumps(opp_data, indent=2)}", flush=True)
             opportunity_id = create_odoo_opportunity(opp_data)
-            print(f"DEBUG: create_odoo_opportunity() returned: {opportunity_id}", flush=True)            
+            #print(f"DEBUG: create_odoo_opportunity() returned: {opportunity_id}", flush=True)            
 
         if not opportunity_id:
             return {"status": "error", "message": "Opportunity create/update failed"}
@@ -418,7 +430,7 @@ def sync_to_odoo(data):
 
 
         opportunity_url = f"{ODOO_URL}/web#id={opportunity_id}&model=crm.lead"
-        print(f"✅ Odoo sync complete — {opportunity_url}", flush=True)
+        #print(f"✅ Odoo sync complete — {opportunity_url}", flush=True)
         return {"status": "ok", "opportunity_url": opportunity_url}
 
     except Exception as e:
