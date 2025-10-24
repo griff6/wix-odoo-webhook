@@ -32,7 +32,7 @@ def wix_form_webhook():
 
         # --- Extract submissionId for deduplication ---
         submission_id = payload.get("data", {}).get("submissionId")
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff = now - timedelta(minutes=10)
 
         # 🧹 Clean out old entries (>10 minutes old)

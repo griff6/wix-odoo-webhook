@@ -18,10 +18,29 @@ ODOO_DB = 'wavcor-international-inc2'
 ODOO_USERNAME = 'al@wavcor.ca'
 ODOO_PASSWORD = 'wavcor3702'
 
+def _ensure_char(v):
+    """Return a safe Char/Text value: empty string for None."""
+    return "" if v is None else str(v)
+
+def _ensure_id(v):
+    """Return an int ID or False (Odoo null) for None/invalid."""
+    if v is None or v is False or v == "":
+        return False
+    try:
+        return int(v)
+    except Exception:
+        return False
+
+def _drop_nones(d: dict) -> dict:
+    """Remove keys whose value is None (keep False/empty strings)."""
+    return {k: ("" if (v is None and isinstance(v, str)) else v)
+            for k, v in d.items() if v is not None}
+
+
 def connect_odoo():
     """Establishes an XML-RPC connection to the Odoo server."""
     try:
-        common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+        common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common', allow_none=True, use_datetime=True)
         version = common.version()
         #print(f"Odoo version: {version}")
         uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD, {})
@@ -29,7 +48,7 @@ def connect_odoo():
         if not uid:
             print("ERROR: Authentication failed. Check your Odoo credentials.")
             return None, None
-        models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+        models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object', allow_none=True, use_datetime=True)
         return uid, models
     except Exception as e:
         print(f"ERROR: Failed to connect to Odoo server: {e}")
@@ -609,21 +628,32 @@ def create_odoo_contact(data):
 
         # --- Build the contact payload ---
         contact_vals = {
-            "name": data["Name"],
-            "email": data.get("Email"),
-            "phone": data.get("Phone"),
-            "city": data.get("City"),
-            "state_id": state_id or False,
-            "country_id": country_id or False,
+            "name": name_val,
+            "email": _ensure_char(data.get("Email")),
+            "phone": _ensure_char(data.get("Phone")),
+            "city": _ensure_char(data.get("City")),
+            "state_id": _ensure_id(state_id) or False,
+            "country_id": _ensure_id(country_id) or False,
         }
+
+        # Remove any accidental None left in dict
+        contact_vals = _drop_nones(contact_vals_raw)
+
+        # DEBUG visibility if something was dropped
+        missing = [k for k, v in contact_vals_raw.items() if v is None]
+        if missing:
+            print(f"⚠️ Odoo payload had None in: {missing} — removed")
 
         contact_id = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             "res.partner", "create", [contact_vals]
         )
-        #print(f"Contact created with ID: {contact_id}")
+        print(f"🆕 Created contact ID {contact_id}")
         return contact_id
 
+    except xmlrpc.client.Fault as e:
+        print(f"ERROR creating contact (RPC): {e.faultString}")
+        return False
     except Exception as e:
         print(f"ERROR creating contact: {e}")
         return False
@@ -685,14 +715,15 @@ def update_odoo_contact(contact_id, data):
     #print(f"DEBUG: Country ID determined for contact update: {country_id}")
 
     update_vals = {
-        "name": data["Name"],
-        "email": data.get("Email"),
-        "phone": data.get("Phone"),
-        "city": data.get("City"),
-        "state_id": state_id or False,
-        "country_id": country_id or False,
+        "name": (data["Name"] or "").strip(),
+        "email": _ensure_char(data.get("Email")),
+        "phone": _ensure_char(data.get("Phone")),
+        "city": _ensure_char(data.get("City")),
+        "state_id": _ensure_id(state_id),
+        "country_id": _ensure_id(country_id),
         "category_id": [(6, 0, tag_ids)] if tag_ids else False,
     }
+    update_vals = _drop_nones(update_vals)
 
     try:
         models.execute_kw(
