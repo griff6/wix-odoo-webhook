@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import json, traceback, time
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from datetime import datetime, timedelta
