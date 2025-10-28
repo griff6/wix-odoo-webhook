@@ -583,7 +583,14 @@ def create_odoo_contact(data):
             print("ERROR: Could not connect to Odoo.")
             return False
 
-        #print(f"DEBUG: In create_odoo_contact Prov/State is '{data.get('Prov/State')}'.")
+        raw_name = (data.get("Name") or "").strip()
+        if not raw_name:
+            first = (data.get("First name") or "").strip()
+            last  = (data.get("Last name")  or "").strip()
+            raw_name = (f"{first} {last}").strip()
+        name_val = raw_name  # <-- ensure defined before use
+        if not name_val:
+            raise ValueError("Contact must have a Name (or First/Last name).")
 
         # --- Normalize and find the state ---
         normalized_state = normalize_state(data.get("Prov/State", ""))
@@ -627,7 +634,7 @@ def create_odoo_contact(data):
         #print(f"DEBUG: Country ID determined for contact: {country_id}")
 
         # --- Build the contact payload ---
-        contact_vals = {
+        contact_vals_raw = {
             "name": name_val,
             "email": _ensure_char(data.get("Email")),
             "phone": _ensure_char(data.get("Phone")),
