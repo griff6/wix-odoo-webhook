@@ -987,65 +987,59 @@ def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, dea
     return activity_id
 
 
-# --- NEW FUNCTION: Create Odoo Activity ---
-def create_odoo_activity(models, uid, activity_data):
+# cache to avoid repeated ir.model lookups
+_CRM_LEAD_MODEL_ID = None
+
+def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, deadline_date=None):
     """
-    Creates a new activity in Odoo (mail.activity).
-    Accepts either 'res_model' or 'res_model_id' for linking to a record.
-    Automatically adds the 'To-Do' activity type if not provided.
-    Works in Odoo SaaS (no ir.model admin access required).
+    Create a mail.activity for a lead in Odoo 17 SaaS via XML-RPC.
+    Uses res_model_id (mandatory) instead of res_model to avoid server complaints.
+    Returns the integer activity ID.
     """
-    try:
-        # ---------------------------------------------------------------------
-        # Ensure an activity_type_id is set (default to "To-Do")
-        # ---------------------------------------------------------------------
-        if "activity_type_id" not in activity_data or not activity_data["activity_type_id"]:
-            activity_type = models.execute_kw(
-                ODOO_DB, uid, ODOO_PASSWORD,
-                "mail.activity.type", "search_read",
-                [[("name", "=", "To-Do")]],
-                {"fields": ["id"], "limit": 1},
-            )
-            if activity_type:
-                activity_data["activity_type_id"] = activity_type[0]["id"]
-            else:
-                print("⚠️  'To-Do' activity type not found; defaulting to ID=1")
-                activity_data["activity_type_id"] = 1
+    from datetime import date
+    global _CRM_LEAD_MODEL_ID
 
-        # ---------------------------------------------------------------------
-        # Prefer using res_model (string) — Odoo resolves it internally
-        # ---------------------------------------------------------------------
-        if "res_model" not in activity_data and "res_model_id" not in activity_data:
-            raise ValueError("Activity must include either 'res_model' or 'res_model_id'.")
+    # 1) Resolve mail.activity.type (To-Do)
+    todo = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD,
+        "mail.activity.type", "search_read",
+        [[("name", "=", "To-Do")]],
+        {"fields": ["id"], "limit": 1},
+    )
+    activity_type_id = todo[0]["id"] if todo else 1
 
-        # If only res_model provided, explicitly set res_model_id to None
-        # to satisfy older Odoo validation but still allow SaaS compatibility
-        if "res_model" in activity_data and "res_model_id" not in activity_data:
-            activity_data["res_model_id"] = None
-
-        # ---------------------------------------------------------------------
-        # Create the activity
-        # ---------------------------------------------------------------------
-        new_activity_id = models.execute_kw(
-            ODOO_DB,
-            uid,
-            ODOO_PASSWORD,
-            "mail.activity",
-            "create",
-            [activity_data],
+    # 2) Resolve res_model_id for crm.lead (cache it)
+    if not _CRM_LEAD_MODEL_ID:
+        model_rec = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "ir.model", "search_read",
+            [[("model", "=", "crm.lead")]],
+            {"fields": ["id"], "limit": 1},
         )
+        if not model_rec:
+            raise RuntimeError("Cannot find ir.model for crm.lead")
+        _CRM_LEAD_MODEL_ID = model_rec[0]["id"]
 
-        print(f"✅ Activity created with ID: {new_activity_id}")
-        return new_activity_id
+    # 3) Build XML-RPC safe values
+    if not deadline_date:
+        deadline_date = date.today().strftime("%Y-%m-%d")
 
-    except xmlrpc.client.Fault as fault:
-        print(
-            f"Odoo RPC Error creating activity: Code={fault.faultCode}, Message={fault.faultString}"
-        )
-        return False
-    except Exception as e:
-        print(f"Unexpected error creating activity in Odoo: {e}")
-        return False
+    vals = {
+        "activity_type_id": int(activity_type_id),
+        "res_model_id": int(_CRM_LEAD_MODEL_ID),  # ← mandatory
+        "res_id": int(lead_id),
+        "user_id": int(user_id),
+        "summary": summary or "",
+        "note": note or "",
+        "date_deadline": deadline_date,           # 'YYYY-MM-DD'
+    }
+
+    activity_id = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD,
+        "mail.activity", "create", [vals]
+    )
+    print(f"🗓️ Activity created (mail.activity id={activity_id}) for opportunity {lead_id}")
+    return activity_id
 
     
 def find_existing_opportunity(opportunity_name):
