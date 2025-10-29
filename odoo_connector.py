@@ -954,6 +954,37 @@ def create_odoo_activity_via_message(models, uid, opportunity_id, user_id, summa
         print(f"Unexpected error scheduling activity: {e}")
         return False
 
+def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, deadline_date=None):
+    # deadline_date: 'YYYY-MM-DD' (string). Default to today if None.
+    from datetime import date
+    if not deadline_date:
+        deadline_date = date.today().strftime("%Y-%m-%d")
+
+    # Get To-Do type id once
+    todo = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD,
+        "mail.activity.type", "search_read",
+        [[("name", "=", "To-Do")]],
+        {"fields": ["id"], "limit": 1},
+    )
+    activity_type_id = todo[0]["id"] if todo else 1
+
+    vals = {
+        "activity_type_id": activity_type_id,
+        "res_model": "crm.lead",
+        "res_id": int(lead_id),
+        "user_id": int(user_id),
+        "summary": summary or "",
+        "note": note or "",
+        "date_deadline": deadline_date,  # 'YYYY-MM-DD'
+    }
+
+    activity_id = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD,
+        "mail.activity", "create", [vals]
+    )
+    print(f"🗓️ Activity created (mail.activity id={activity_id}) for opportunity {lead_id}")
+    return activity_id
 
 
 # --- NEW FUNCTION: Create Odoo Activity ---

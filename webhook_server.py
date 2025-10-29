@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 from odoo_connector import (
     create_odoo_contact, update_odoo_contact, find_existing_contact,
     create_odoo_opportunity, connect_odoo, get_or_create_opportunity_tags,
-    find_odoo_user_id, create_odoo_activity, get_model_id,
+    find_odoo_user_id, get_model_id,
     find_closest_dealer, find_existing_opportunity, update_odoo_opportunity,
-    post_internal_note_to_opportunity, ODOO_URL, normalize_state, create_odoo_activity_via_message
+    post_internal_note_to_opportunity, ODOO_URL, normalize_state, schedule_activity_for_lead, 
 )
 
 app = Flask(__name__)
@@ -417,8 +417,8 @@ def sync_to_odoo(data):
             #    "date_deadline": datetime.now().strftime("%Y-%m-%d"),  # due now
             #    "note": f"Follow-up for {data['Name']}",
             #}
-            #create_odoo_activity(models, uid, activity_data)
-            create_odoo_activity_via_message(
+            #schedule_activity_for_lead(models, uid, activity_data)
+            schedule_activity_for_lead(
                 models,
                 uid,
                 opportunity_id,
