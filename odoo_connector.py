@@ -2,7 +2,7 @@
 # file: odoo_connector.py
 # -----------------------------
 import xmlrpc.client
-from datetime import datetime, timedelta 
+from datetime import datetime, date, timedelta 
 import math
 from typing import Optional, Union
 import re
@@ -17,6 +17,7 @@ ODOO_DB = 'wavcor-international-inc2'
 #ODOO_PASSWORD = 'Wavcor3702?'
 ODOO_USERNAME = 'al@wavcor.ca'
 ODOO_PASSWORD = 'wavcor3702'
+CRM_LEAD_MODEL_ID = 1082
 
 def _ensure_char(v):
     """Return a safe Char/Text value: empty string for None."""
@@ -35,6 +36,27 @@ def _drop_nones(d: dict) -> dict:
     """Remove keys whose value is None (keep False/empty strings)."""
     return {k: ("" if (v is None and isinstance(v, str)) else v)
             for k, v in d.items() if v is not None}
+
+def _norm_phone(p: str) -> str:
+    if not p: return ""
+    return "".join(ch for ch in str(p) if ch.isdigit())
+
+def _norm_name(s: str) -> str:
+    s = ''.join(c for c in (s or "") if c in string.printable)
+    return re.sub(r'\s+', ' ', s.strip()).lower()
+
+def _name_tokens(s: str) -> set:
+    return set(tok for tok in re.split(r"[^\w]+", _norm_name(s)) if tok)
+
+def _similar_names(a: str, b: str) -> bool:
+    """Cheap, fast similarity: token overlap. Adjust thresholds if needed."""
+    ta, tb = _name_tokens(a), _name_tokens(b)
+    if not ta or not tb:
+        return False
+    inter = len(ta & tb)
+    jacc = inter / len(ta | tb)
+    # generous threshold: share at least 1 token AND Jaccard >= 0.34
+    return inter >= 1 and jacc >= 0.34
 
 
 def connect_odoo():
@@ -666,88 +688,93 @@ def create_odoo_contact(data):
         return False
 
 
+def _has_text(v) -> bool:
+    return isinstance(v, str) and v.strip() != ""
+
 def update_odoo_contact(contact_id, data):
     uid, models = connect_odoo()
     if not uid:
         print("❌ Failed to connect to Odoo for contact update.")
         return False
 
-    tag_ids = get_or_create_tags(models, uid, data.get("Products Interest", []))
+    # Read current values to make decisions (name/email/phone/mobile/city)
+    current = models.execute_kw(
+        ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "read",
+        [[contact_id]], {"fields": ["name", "email", "phone", "mobile", "city"], "load": "classic"}
+    )[0]
 
-    country_id = False
-    state_id = False
-    prov_state_input = (data.get("Prov/State") or "").strip()
+    form_name = (data.get("Name") or f"{data.get('First name','')} {data.get('Last name','')}").strip()
+    form_email = (data.get("Email") or "").strip().lower()
+    form_phone = (data.get("Phone") or "").strip()
+    form_city  = (data.get("City") or "").strip()
 
+    update_vals = {}
+
+    # EMAIL: if provided and different, update
+    if _has_text(form_email) and form_email != (current.get("email") or "").lower():
+        update_vals["email"] = form_email
+
+    # PHONE: if provided and different, update
+    if _has_text(form_phone) and form_phone != (current.get("phone") or ""):
+        update_vals["phone"] = form_phone
+
+    # CITY: if provided and different, update
+    if _has_text(form_city) and form_city != (current.get("city") or ""):
+        update_vals["city"] = form_city
+
+    # NAME: update only if safe
+    # Safe if existing name empty OR names are similar (variant) OR you matched by exact email
+    safe_to_rename = False
+    if _has_text(form_name):
+        existing_name = current.get("name") or ""
+        email_equal = form_email and (form_email == (current.get("email") or "").lower())
+        if not existing_name:
+            safe_to_rename = True
+        elif email_equal and _similar_names(existing_name, form_name):
+            safe_to_rename = True
+        elif _similar_names(existing_name, form_name):
+            safe_to_rename = True
+        # else keep existing name; log discrepancy
+        if safe_to_rename and form_name != existing_name:
+            update_vals["name"] = form_name
+        elif not safe_to_rename and form_name and form_name.lower() != existing_name.lower():
+            print(f"⚠️ Name mismatch for partner {contact_id!r}: keep '{existing_name}' (form had '{form_name}').")
+
+    # STATE/COUNTRY only if resolvable from the form
+    prov_state_input = (data.get("Prov/State") or data.get("Province/State") or data.get("Privince/State") or "").strip()
     if prov_state_input:
-        # Normalize and find the state
         normalized_state = normalize_state(prov_state_input)
-        #print(f"DEBUG: In update_odoo_contact Prov/State is '{prov_state_input}', normalized to '{normalized_state}'.")
-
         state_record = models.execute_kw(
-            ODOO_DB, uid, ODOO_PASSWORD,
-            "res.country.state", "search_read",
-            [[("code", "=", normalized_state)]],
-            {"fields": ["id", "country_id"], "limit": 1},
+            ODOO_DB, uid, ODOO_PASSWORD, "res.country.state", "search_read",
+            [[("code", "=", normalized_state)]], {"fields": ["id", "country_id"], "limit": 1},
+        ) or models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, "res.country.state", "search_read",
+            [[("name", "ilike", prov_state_input)]], {"fields": ["id", "country_id"], "limit": 1},
         )
-
         if state_record:
-            state_id = state_record[0]["id"]
-            #print(f"DEBUG: Found Odoo state ID {state_id} by code for '{normalized_state}'.")
+            update_vals["state_id"] = state_record[0]["id"]
             if state_record[0].get("country_id"):
-                country_id = state_record[0]["country_id"][0]
-                #print(f"DEBUG: Country ID derived from state: {country_id}")
-        else:
-            print(f"DEBUG: State '{normalized_state}' not found in Odoo.")
+                update_vals["country_id"] = state_record[0]["country_id"][0]
 
-    else:
-        print("DEBUG: No Prov/State provided, skipping state lookup.")
+    # TAGS: only set if you actually have tags
+    tag_ids = get_or_create_tags(models, uid, data.get("Products Interest", []))
+    if tag_ids:
+        update_vals["category_id"] = [(6, 0, tag_ids)]
 
-    # Fallback to default country (Canada)
-    if not country_id:
-        try:
-            country = models.execute_kw(
-                ODOO_DB, uid, ODOO_PASSWORD,
-                "res.country", "search_read",
-                [[("code", "=", "CA")]],
-                {"fields": ["id"], "limit": 1},
-            )
-            if country:
-                country_id = country[0]["id"]
-                #print(f"DEBUG: Defaulted to Canada (Country ID: {country_id}) for update.")
-            else:
-                print("DEBUG: Could not find country 'CA' in Odoo — leaving blank.")
-        except Exception as e:
-            print(f"DEBUG: Could not set default country: {e}")
-
-    #print(f"DEBUG: Country ID determined for contact update: {country_id}")
-
-    update_vals = {
-        "name": (data["Name"] or "").strip(),
-        "email": _ensure_char(data.get("Email")),
-        "phone": _ensure_char(data.get("Phone")),
-        "city": _ensure_char(data.get("City")),
-        "state_id": _ensure_id(state_id),
-        "country_id": _ensure_id(country_id),
-        "category_id": [(6, 0, tag_ids)] if tag_ids else False,
-    }
-    update_vals = _drop_nones(update_vals)
-
-    try:
-        models.execute_kw(
-            ODOO_DB,
-            uid,
-            ODOO_PASSWORD,
-            "res.partner",
-            "write",
-            [[contact_id], update_vals],
-        )
-        print(f"✅ Contact ID {contact_id} updated successfully.")
+    if not update_vals:
+        print(f"ℹ️ Nothing to update for contact {contact_id}.")
         return True
 
+    try:
+        ok = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "write",
+            [[contact_id], update_vals],
+        )
+        print(f"✅ Contact {contact_id} updated (fields: {list(update_vals.keys())}).")
+        return bool(ok)
     except xmlrpc.client.Fault as e:
-        print(f"🚨 Odoo RPC Error updating contact {contact_id}: Code={e.faultCode}, Message={e.faultString}")
+        print(f"🚨 Odoo RPC Error updating contact {contact_id}: {e.faultString}")
         return False
-
     except Exception as e:
         print(f"Unexpected error updating contact {contact_id}: {e}")
         return False
@@ -755,51 +782,69 @@ def update_odoo_contact(contact_id, data):
 
 def find_existing_contact(data):
     """
-    Searches Odoo for an existing contact by name or email.
-    Returns a dict with id, name, email, phone if found; otherwise None.
+    Priority:
+      1) email exact (case-insensitive)
+      2) phone digits exact in phone OR mobile
+      3) name+city fallback with loose similarity
+    Returns a dict {id, name, email, phone, mobile, city} or None.
     """
     uid, models = connect_odoo()
     if not uid:
         print("Failed to log in to Odoo for contact search.")
         return None
 
+    email = (data.get("Email") or "").strip().lower()
+    phone_norm = _norm_phone(data.get("Phone") or "")
+    name_in = (data.get("Name") or f"{data.get('First name','')} {data.get('Last name','')}").strip()
+    city = (data.get("City") or "").strip()
+
     try:
-        name = (data.get("Name") or "").strip()
-        email = (data.get("Email") or "").strip().lower()
+        # 1) Email exact
+        if email:
+            res = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "search_read",
+                [[("email", "=", email)]],
+                {"fields": ["id", "name", "email", "phone", "mobile", "city"], "limit": 1},
+            )
+            if res: return res[0]
 
-        if not name and not email:
-            print("⚠️ No name or email provided for contact search.")
-            return None
+        # 2) Phone exact
+        if phone_norm:
+            res = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "search_read",
+                [[("|", ("phone", "!=", False), ("mobile", "!=", False))]],
+                {"fields": ["id", "name", "email", "phone", "mobile", "city"], "limit": 50},
+            )
+            for r in res:
+                if _norm_phone(r.get("phone")) == phone_norm or _norm_phone(r.get("mobile")) == phone_norm:
+                    return r
 
-        domain = []
-        if name and email:
-            domain = ["|", ("name", "ilike", name), ("email", "=", email)]
-        elif name:
-            domain = [("name", "ilike", name)]
-        elif email:
-            domain = [("email", "=", email)]
+        # 3) Name + City fallback
+        if name_in and city:
+            res = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "search_read",
+                [["&", ("name", "ilike", name_in), ("city", "ilike", city)]],
+                {"fields": ["id", "name", "email", "phone", "mobile", "city"], "limit": 5},
+            )
+            # choose the one with the most similar name
+            best = None
+            best_score = -1
+            for r in res:
+                if _similar_names(r["name"], name_in):
+                    # simple score = token overlap size
+                    score = len(_name_tokens(r["name"]) & _name_tokens(name_in))
+                    if score > best_score:
+                        best, best_score = r, score
+            if best:
+                return best
 
-        print(f"Searching for existing contact: {domain}", flush=True)
-
-        result = models.execute_kw(
-            ODOO_DB,
-            uid,
-            ODOO_PASSWORD,
-            "res.partner",
-            "search_read",
-            [domain],
-            {"fields": ["id", "name", "email", "phone"], "limit": 1},
-        )
-
-        if result:
-            print(f"Found result: {result}", flush=True)
-            return result[0]
         return None
 
     except Exception as e:
         print(f"❌ Error in find_existing_contact: {e}", flush=True)
         traceback.print_exc()
         return None
+
 
 
 def create_odoo_opportunity(opportunity_data):
@@ -954,29 +999,53 @@ def create_odoo_activity_via_message(models, uid, opportunity_id, user_id, summa
         print(f"Unexpected error scheduling activity: {e}")
         return False
 
+from datetime import date
+
 def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, deadline_date=None):
-    # deadline_date: 'YYYY-MM-DD' (string). Default to today if None.
-    from datetime import date
+    """
+    Create a mail.activity on a lead without reading ir.model (no extra perms).
+    Requires CRM_LEAD_MODEL_ID to be set to the 'crm.lead' ir.model id.
+    """
     if not deadline_date:
         deadline_date = date.today().strftime("%Y-%m-%d")
 
-    # Get To-Do type id once
+    # 1) Get To-Do type (safe)
     todo = models.execute_kw(
         ODOO_DB, uid, ODOO_PASSWORD,
         "mail.activity.type", "search_read",
         [[("name", "=", "To-Do")]],
         {"fields": ["id"], "limit": 1},
     )
-    activity_type_id = todo[0]["id"] if todo else 1
+    activity_type_id = int(todo[0]["id"]) if todo else 1
+
+    # 2) Require the model id (no ir.model read)
+    if not isinstance(CRM_LEAD_MODEL_ID, int):
+        # Fall back to an internal note so the webhook still succeeds
+        print("⚠️ CRM_LEAD_MODEL_ID not set; posting note instead of scheduling activity.")
+        try:
+            models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "crm.lead", "message_post",
+                [[int(lead_id)]],
+                {
+                    "body": (note or summary or "Follow-up"),
+                    "message_type": "comment",
+                    "subtype_xmlid": "mail.mt_note",
+                },
+            )
+            print(f"📝 Posted note on opportunity {lead_id} (no activity, missing CRM_LEAD_MODEL_ID).")
+        except Exception as e:
+            print(f"❌ Failed to post note fallback: {e}")
+        return False
 
     vals = {
         "activity_type_id": activity_type_id,
-        "res_model": "crm.lead",
+        "res_model_id": int(CRM_LEAD_MODEL_ID),  # <-- no ir.model lookup
         "res_id": int(lead_id),
         "user_id": int(user_id),
         "summary": summary or "",
         "note": note or "",
-        "date_deadline": deadline_date,  # 'YYYY-MM-DD'
+        "date_deadline": deadline_date,
     }
 
     activity_id = models.execute_kw(
@@ -985,6 +1054,7 @@ def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, dea
     )
     print(f"🗓️ Activity created (mail.activity id={activity_id}) for opportunity {lead_id}")
     return activity_id
+
 
 
 # cache to avoid repeated ir.model lookups
