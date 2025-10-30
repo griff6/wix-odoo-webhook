@@ -812,7 +812,7 @@ def find_existing_contact(data):
         if phone_norm:
             res = models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "search_read",
-                [[("|", ("phone", "!=", False), ("mobile", "!=", False))]],
+                [['|', ('phone', '!=', False), ('mobile', '!=', False)]],
                 {"fields": ["id", "name", "email", "phone", "mobile", "city"], "limit": 50},
             )
             for r in res:
@@ -1001,15 +1001,20 @@ def create_odoo_activity_via_message(models, uid, opportunity_id, user_id, summa
 
 from datetime import date
 
+from datetime import date  # make sure this import exists
+
 def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, deadline_date=None):
     """
-    Create a mail.activity on a lead without reading ir.model (no extra perms).
-    Requires CRM_LEAD_MODEL_ID to be set to the 'crm.lead' ir.model id.
+    Create a mail.activity on a lead without querying ir.model.
+    Strategy:
+      1) Try res_model='crm.lead' (works on many Odoo 17 SaaS instances)
+      2) If server requires res_model_id, retry if CRM_LEAD_MODEL_ID is set
+      3) Otherwise post an internal note as a safe fallback
     """
     if not deadline_date:
         deadline_date = date.today().strftime("%Y-%m-%d")
 
-    # 1) Get To-Do type (safe)
+    # Get To-Do type id
     todo = models.execute_kw(
         ODOO_DB, uid, ODOO_PASSWORD,
         "mail.activity.type", "search_read",
@@ -1018,98 +1023,63 @@ def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, dea
     )
     activity_type_id = int(todo[0]["id"]) if todo else 1
 
-    # 2) Require the model id (no ir.model read)
-    if not isinstance(CRM_LEAD_MODEL_ID, int):
-        # Fall back to an internal note so the webhook still succeeds
-        print("⚠️ CRM_LEAD_MODEL_ID not set; posting note instead of scheduling activity.")
-        try:
-            models.execute_kw(
-                ODOO_DB, uid, ODOO_PASSWORD,
-                "crm.lead", "message_post",
-                [[int(lead_id)]],
-                {
-                    "body": (note or summary or "Follow-up"),
-                    "message_type": "comment",
-                    "subtype_xmlid": "mail.mt_note",
-                },
-            )
-            print(f"📝 Posted note on opportunity {lead_id} (no activity, missing CRM_LEAD_MODEL_ID).")
-        except Exception as e:
-            print(f"❌ Failed to post note fallback: {e}")
-        return False
-
-    vals = {
+    # Attempt 1: use res_model (no ir.model permission needed)
+    vals_res_model = {
         "activity_type_id": activity_type_id,
-        "res_model_id": int(CRM_LEAD_MODEL_ID),  # <-- no ir.model lookup
+        "res_model": "crm.lead",
         "res_id": int(lead_id),
         "user_id": int(user_id),
         "summary": summary or "",
         "note": note or "",
         "date_deadline": deadline_date,
     }
-
-    activity_id = models.execute_kw(
-        ODOO_DB, uid, ODOO_PASSWORD,
-        "mail.activity", "create", [vals]
-    )
-    print(f"🗓️ Activity created (mail.activity id={activity_id}) for opportunity {lead_id}")
-    return activity_id
-
-
-
-# cache to avoid repeated ir.model lookups
-_CRM_LEAD_MODEL_ID = None
-
-def schedule_activity_for_lead(models, uid, lead_id, user_id, summary, note, deadline_date=None):
-    """
-    Create a mail.activity for a lead in Odoo 17 SaaS via XML-RPC.
-    Uses res_model_id (mandatory) instead of res_model to avoid server complaints.
-    Returns the integer activity ID.
-    """
-    from datetime import date
-    global _CRM_LEAD_MODEL_ID
-
-    # 1) Resolve mail.activity.type (To-Do)
-    todo = models.execute_kw(
-        ODOO_DB, uid, ODOO_PASSWORD,
-        "mail.activity.type", "search_read",
-        [[("name", "=", "To-Do")]],
-        {"fields": ["id"], "limit": 1},
-    )
-    activity_type_id = todo[0]["id"] if todo else 1
-
-    # 2) Resolve res_model_id for crm.lead (cache it)
-    if not _CRM_LEAD_MODEL_ID:
-        model_rec = models.execute_kw(
+    try:
+        activity_id = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
-            "ir.model", "search_read",
-            [[("model", "=", "crm.lead")]],
-            {"fields": ["id"], "limit": 1},
+            "mail.activity", "create", [vals_res_model]
         )
-        if not model_rec:
-            raise RuntimeError("Cannot find ir.model for crm.lead")
-        _CRM_LEAD_MODEL_ID = model_rec[0]["id"]
+        print(f"🗓️ Activity created (mail.activity id={activity_id}) for opportunity {lead_id}")
+        return activity_id
+    except Exception as e:
+        msg = getattr(e, "faultString", str(e)) or ""
+        # Some instances mandate res_model_id
+        needs_id = "res_model_id" in msg.lower() or "document model" in msg.lower()
 
-    # 3) Build XML-RPC safe values
-    if not deadline_date:
-        deadline_date = date.today().strftime("%Y-%m-%d")
+    # Attempt 2: retry with res_model_id if available
+    if 'needs_id' in locals() and needs_id and isinstance(globals().get("CRM_LEAD_MODEL_ID"), int):
+        vals_res_model_id = {
+            "activity_type_id": activity_type_id,
+            "res_model_id": int(CRM_LEAD_MODEL_ID),  # set this once per DB if you have it
+            "res_id": int(lead_id),
+            "user_id": int(user_id),
+            "summary": summary or "",
+            "note": note or "",
+            "date_deadline": deadline_date,
+        }
+        activity_id = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "mail.activity", "create", [vals_res_model_id]
+        )
+        print(f"🗓️ Activity created with res_model_id (mail.activity id={activity_id}) for opportunity {lead_id}")
+        return activity_id
 
-    vals = {
-        "activity_type_id": int(activity_type_id),
-        "res_model_id": int(_CRM_LEAD_MODEL_ID),  # ← mandatory
-        "res_id": int(lead_id),
-        "user_id": int(user_id),
-        "summary": summary or "",
-        "note": note or "",
-        "date_deadline": deadline_date,           # 'YYYY-MM-DD'
-    }
-
-    activity_id = models.execute_kw(
-        ODOO_DB, uid, ODOO_PASSWORD,
-        "mail.activity", "create", [vals]
-    )
-    print(f"🗓️ Activity created (mail.activity id={activity_id}) for opportunity {lead_id}")
-    return activity_id
+    # Attempt 3: final fallback, post an internal note so the webhook still succeeds
+    print("⚠️ Could not create activity (res_model or res_model_id). Posting a note as fallback.")
+    try:
+        models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "crm.lead", "message_post",
+            [[int(lead_id)]],
+            {
+                "body": (note or summary or "Follow-up"),
+                "message_type": "comment",
+                "subtype_xmlid": "mail.mt_note",
+            },
+        )
+        print(f"📝 Posted note on opportunity {lead_id} (activity fallback).")
+    except Exception as e2:
+        print(f"❌ Failed to post note fallback: {e2}")
+    return False
 
     
 def find_existing_opportunity(opportunity_name):
