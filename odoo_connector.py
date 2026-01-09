@@ -15,7 +15,7 @@ ODOO_DB = 'wavcor-international-inc2'
 #ODOO_DB = 'wavcor-test-2025-07-20'
 #ODOO_USERNAME = 'jason@wavcor.ca'
 #ODOO_PASSWORD = 'Wavcor3702?'
-ODOO_USERNAME = 'al@wavcor.ca'
+ODOO_USERNAME = 'sales@wavcor.ca'
 ODOO_PASSWORD = 'wavcor3702'
 CRM_LEAD_MODEL_ID = 1082
 

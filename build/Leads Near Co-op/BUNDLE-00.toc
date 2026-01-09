@@ -1,0 +1,4 @@
+([('Leads Near Co-op',
+   '/Users/jasongriffith/Projects/Lead Tools/wix-odoo-webhook/dist/Leads Near '
+   'Co-op',
+   'EXECUTABLE')],)
