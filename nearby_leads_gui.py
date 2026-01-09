@@ -5,6 +5,10 @@ import csv
 import json
 import threading
 import time
+import os
+import sys
+import subprocess
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -204,19 +208,29 @@ class App(tk.Tk):
         top = ttk.Frame(self, padding=10)
         top.pack(fill="x")
 
-        ttk.Label(top, text="Co-op Location:").grid(row=0, column=0, sticky="w")
-        self.dealer_combo = ttk.Combobox(top, textvariable=self.dealer_var, width=45, state="readonly")
-        self.dealer_combo["values"] = sorted([d.get("Location", "") for d in DEALER_LOCATIONS if d.get("Location")])
-        self.dealer_combo.grid(row=0, column=1, padx=6, sticky="w")
+        dealers = sorted([d.get("Location", "") for d in DEALER_LOCATIONS if d.get("Location")])
+        default = dealers[0] if dealers else ""
+        self.dealer_var.set(default)
 
-        ttk.Label(top, text="Radius (km):").grid(row=0, column=2, sticky="w")
-        ttk.Entry(top, textvariable=self.radius_var, width=10).grid(row=0, column=3, padx=6, sticky="w")
+        ttk.Label(top, text="Co-op Location:").grid(row=0, column=0, sticky="w")
+
+        # Show current selection in a read-only entry
+        self.dealer_display = ttk.Entry(top, textvariable=self.dealer_var, width=48, state="readonly")
+        self.dealer_display.grid(row=0, column=1, padx=6, sticky="w")
+
+        # Button to open picker
+        ttk.Button(top, text="Select...", command=self._open_dealer_picker).grid(row=0, column=2, sticky="w")
+
+        # Radius controls moved to columns 3 and 4
+        ttk.Label(top, text="Radius (km):").grid(row=0, column=3, sticky="w", padx=(12, 0))
+        ttk.Entry(top, textvariable=self.radius_var, width=10).grid(row=0, column=4, padx=6, sticky="w")
+
 
         ttk.Label(top, text="Leads JSON:").grid(row=1, column=0, sticky="w", pady=(8, 0))
         ttk.Entry(top, textvariable=self.leads_path, width=60).grid(row=1, column=1, padx=6, sticky="w", pady=(8, 0))
         ttk.Button(top, text="Browse...", command=self._browse_leads).grid(row=1, column=2, sticky="w", pady=(8, 0))
 
-        ttk.Button(top, text="Search", command=self._start_search).grid(row=0, column=4, padx=12, sticky="w")
+        ttk.Button(top, text="Search", command=self._start_search).grid(row=0, column=5, padx=12, sticky="w")
         ttk.Button(top, text="Export CSV", command=self._export_csv).grid(row=1, column=4, padx=12, sticky="w", pady=(8, 0))
 
         prog = ttk.Progressbar(self, variable=self.progress_var, maximum=100)
@@ -249,7 +263,7 @@ class App(tk.Tk):
 
     def _set_status(self, msg: str):
         self.status_var.set(msg)
-        self.update_idletasks()
+
 
     def _progress(self, current: int, total: int, geocode_calls: int, done: bool = False, skipped_missing: int = 0, skipped_geocode: int = 0):
         pct = (current / total) * 100 if total else 0
@@ -275,12 +289,13 @@ class App(tk.Tk):
             try:
                 radius = float(self.radius_var.get().strip())
             except ValueError:
-                messagebox.showerror("Invalid radius", "Radius must be a number.")
+                self._ui(messagebox.showerror("Invalid radius", "Radius must be a number."))
                 return
 
             leads_path = Path(self.leads_path.get().strip())
             if not leads_path.exists():
-                messagebox.showerror("Missing file", f"Leads file not found:\n{leads_path}")
+                self._ui(messagebox.showerror("Missing file", f"Leads file not found:\n{leads_path}"))
+                
                 return
 
             leads = load_leads_export(leads_path)
@@ -291,7 +306,8 @@ class App(tk.Tk):
                 dealer=dealer,
                 leads=leads,
                 radius_km=radius,
-                progress_cb=lambda c, t, g, **kw: self._progress(c, t, g, **kw),
+                progress_cb=lambda c, t, g, **kw: self._ui(self._progress, c, t, g, **kw),
+
             )
             self.matches = matches
 
@@ -319,11 +335,13 @@ class App(tk.Tk):
             self.progress_var.set(100.0)
 
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            self._ui(messagebox.showerror, "Error", str(e))
+
 
     def _export_csv(self):
         if not self.matches:
-            messagebox.showinfo("No results", "Run a search first.")
+            self._ui(messagebox.showinfo("No results", "Run a search first."))
+
             return
 
         path = filedialog.asksaveasfilename(
@@ -342,8 +360,125 @@ class App(tk.Tk):
                 prov = r.get("province_state_code") or r.get("province_state_name") or ""
                 w.writerow([r.get("distance_km", ""), r.get("name", ""), r.get("city", ""), prov, r.get("stage_name", ""), phone, r.get("email", "")])
 
-        messagebox.showinfo("Saved", f"CSV saved:\n{path}")
+        self._ui(messagebox.showinfo("Saved", f"CSV saved:\n{path}"))
 
+    def _ui(self, fn, *args, **kwargs):
+        """Run a callable on the Tk main thread."""
+        self.after(0, lambda: fn(*args, **kwargs))
+
+    def _open_dealer_picker(self):
+        dealers = sorted([d.get("Location", "") for d in DEALER_LOCATIONS if d.get("Location")])
+
+        win = tk.Toplevel(self)
+        win.title("Select Co-op Location")
+        win.geometry("520x420")
+        win.transient(self)
+
+
+        # Make it modal
+        win.grab_set()
+        self._activate_window(win)
+
+        # If user closes the window via the red X, restore focus to main
+        def on_close():
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+            self._restore_main_focus()
+
+
+        win.protocol("WM_DELETE_WINDOW", on_close)
+
+        # Search box
+        search_var = tk.StringVar(value="")
+        ttk.Label(win, text="Search:").pack(anchor="w", padx=10, pady=(10, 0))
+        search_entry = ttk.Entry(win, textvariable=search_var)
+        search_entry.pack(fill="x", padx=10)
+
+        # Listbox with scrollbar
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        yscroll = ttk.Scrollbar(frame, orient="vertical")
+        yscroll.pack(side="right", fill="y")
+
+        lb = tk.Listbox(
+            frame,
+            yscrollcommand=yscroll.set,
+            activestyle="dotbox",
+            selectmode="browse",
+            exportselection=False,
+        )
+        lb.pack(side="left", fill="both", expand=True)
+        yscroll.config(command=lb.yview)
+
+        def populate(filtered: List[str]):
+            lb.delete(0, tk.END)
+            for d in filtered:
+                lb.insert(tk.END, d)
+
+        populate(dealers)
+
+        def on_search(*_):
+            q = search_var.get().strip().lower()
+            if not q:
+                populate(dealers)
+            else:
+                populate([d for d in dealers if q in d.lower()])
+
+        search_var.trace_add("write", on_search)
+
+        btns = ttk.Frame(win)
+        btns.pack(fill="x", padx=10, pady=(0, 10))
+
+        def accept():
+            sel = lb.curselection()
+            if not sel:
+                return
+            value = lb.get(sel[0])
+            self.dealer_var.set(value)
+            on_close()  # closes + restores focus
+
+        ttk.Button(btns, text="OK", command=accept).pack(side="right")
+        ttk.Button(btns, text="Cancel", command=on_close).pack(side="right", padx=(0, 8))
+
+        lb.bind("<Double-Button-1>", lambda e: accept())
+        lb.bind("<Return>", lambda e: accept())
+        lb.bind("<Escape>", lambda e: on_close())
+
+        # Ensure keyboard focus starts in the search entry
+        search_entry.focus_set()
+
+        # Optional: block here until the dialog closes (more modal correctness)
+        win.wait_window()
+
+    def _activate_window(self, win: tk.Toplevel | tk.Tk):
+        """Bring a window to front and ensure it has focus (macOS-friendly)."""
+        try:
+            win.lift()
+        except Exception:
+            pass
+        try:
+            win.attributes("-topmost", True)
+            win.after(50, lambda: win.attributes("-topmost", False))
+        except Exception:
+            pass
+        try:
+            win.focus_force()
+        except Exception:
+            pass
+
+
+    def _restore_main_focus(self):
+        """Restore focus to the main window after closing a dialog."""
+        self._activate_window(self)
+        # Put keyboard focus somewhere sensible:
+        try:
+            self.focus_set()
+        except Exception:
+            pass
 
 if __name__ == "__main__":
     App().mainloop()
