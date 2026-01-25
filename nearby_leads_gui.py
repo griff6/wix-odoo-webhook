@@ -8,6 +8,8 @@ import time
 import os
 import sys
 import subprocess
+import sys
+import subprocess
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -203,6 +205,9 @@ class App(tk.Tk):
         dealers = sorted([d.get("Location", "") for d in DEALER_LOCATIONS if d.get("Location")])
         if dealers:
             self.dealer_var.set(dealers[0])
+
+        self._start_export_on_launch()
+
 
     def _build_ui(self):
         top = ttk.Frame(self, padding=10)
@@ -479,6 +484,40 @@ class App(tk.Tk):
             self.focus_set()
         except Exception:
             pass
+
+    def _start_export_on_launch(self):
+        t = threading.Thread(target=self._run_export_on_launch, daemon=True)
+        t.start()
+
+    def _run_export_on_launch(self):
+        try:
+            self._ui(self._set_status, "Updating leads from Odoo...")
+
+            # Use the same python interpreter that launched the GUI
+            cmd = [
+                sys.executable,
+                "export_leads_json.py",
+                "--out",
+                str(Path(self.leads_path.get()).resolve()),
+            ]
+
+            # Run exporter and capture output for troubleshooting
+            p = subprocess.run(cmd, capture_output=True, text=True)
+
+            if p.returncode != 0:
+                msg = (p.stderr or p.stdout or "").strip() or "Unknown error"
+                self._ui(messagebox.showerror, "Lead export failed", msg[:2000])
+                self._ui(self._set_status, "Lead update failed (see error).")
+                return
+
+            # Reload the file and report count
+            leads_path = Path(self.leads_path.get().strip())
+            leads = load_leads_export(leads_path)
+            self._ui(self._set_status, f"Leads updated: {len(leads)} loaded.")
+        except Exception as e:
+            self._ui(messagebox.showerror, "Lead export error", str(e))
+            self._ui(self._set_status, "Lead update failed (unexpected error).")
+
 
 if __name__ == "__main__":
     App().mainloop()
