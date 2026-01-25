@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# PyInstaller / build artifacts
+build/
+dist/
+*.spec
+*.toc
+*.pyz
+*.zip
+*.pkg
+*.icns
+*.app
