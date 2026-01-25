@@ -5,6 +5,12 @@ import csv
 import json
 import threading
 import time
+import os
+import sys
+import subprocess
+import sys
+import subprocess
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -359,7 +365,158 @@ class App(tk.Tk):
                 prov = r.get("province_state_code") or r.get("province_state_name") or ""
                 w.writerow([r.get("distance_km", ""), r.get("name", ""), r.get("city", ""), prov, r.get("stage_name", ""), phone, r.get("email", "")])
 
-        messagebox.showinfo("Saved", f"CSV saved:\n{path}")
+        self._ui(messagebox.showinfo("Saved", f"CSV saved:\n{path}"))
+
+    def _ui(self, fn, *args, **kwargs):
+        """Run a callable on the Tk main thread."""
+        self.after(0, lambda: fn(*args, **kwargs))
+
+    def _open_dealer_picker(self):
+        dealers = sorted([d.get("Location", "") for d in DEALER_LOCATIONS if d.get("Location")])
+
+        win = tk.Toplevel(self)
+        win.title("Select Co-op Location")
+        win.geometry("520x420")
+        win.transient(self)
+
+
+        # Make it modal
+        win.grab_set()
+        self._activate_window(win)
+
+        # If user closes the window via the red X, restore focus to main
+        def on_close():
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            win.destroy()
+            self._restore_main_focus()
+
+
+        win.protocol("WM_DELETE_WINDOW", on_close)
+
+        # Search box
+        search_var = tk.StringVar(value="")
+        ttk.Label(win, text="Search:").pack(anchor="w", padx=10, pady=(10, 0))
+        search_entry = ttk.Entry(win, textvariable=search_var)
+        search_entry.pack(fill="x", padx=10)
+
+        # Listbox with scrollbar
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        yscroll = ttk.Scrollbar(frame, orient="vertical")
+        yscroll.pack(side="right", fill="y")
+
+        lb = tk.Listbox(
+            frame,
+            yscrollcommand=yscroll.set,
+            activestyle="dotbox",
+            selectmode="browse",
+            exportselection=False,
+        )
+        lb.pack(side="left", fill="both", expand=True)
+        yscroll.config(command=lb.yview)
+
+        def populate(filtered: List[str]):
+            lb.delete(0, tk.END)
+            for d in filtered:
+                lb.insert(tk.END, d)
+
+        populate(dealers)
+
+        def on_search(*_):
+            q = search_var.get().strip().lower()
+            if not q:
+                populate(dealers)
+            else:
+                populate([d for d in dealers if q in d.lower()])
+
+        search_var.trace_add("write", on_search)
+
+        btns = ttk.Frame(win)
+        btns.pack(fill="x", padx=10, pady=(0, 10))
+
+        def accept():
+            sel = lb.curselection()
+            if not sel:
+                return
+            value = lb.get(sel[0])
+            self.dealer_var.set(value)
+            on_close()  # closes + restores focus
+
+        ttk.Button(btns, text="OK", command=accept).pack(side="right")
+        ttk.Button(btns, text="Cancel", command=on_close).pack(side="right", padx=(0, 8))
+
+        lb.bind("<Double-Button-1>", lambda e: accept())
+        lb.bind("<Return>", lambda e: accept())
+        lb.bind("<Escape>", lambda e: on_close())
+
+        # Ensure keyboard focus starts in the search entry
+        search_entry.focus_set()
+
+        # Optional: block here until the dialog closes (more modal correctness)
+        win.wait_window()
+
+    def _activate_window(self, win: tk.Toplevel | tk.Tk):
+        """Bring a window to front and ensure it has focus (macOS-friendly)."""
+        try:
+            win.lift()
+        except Exception:
+            pass
+        try:
+            win.attributes("-topmost", True)
+            win.after(50, lambda: win.attributes("-topmost", False))
+        except Exception:
+            pass
+        try:
+            win.focus_force()
+        except Exception:
+            pass
+
+
+    def _restore_main_focus(self):
+        """Restore focus to the main window after closing a dialog."""
+        self._activate_window(self)
+        # Put keyboard focus somewhere sensible:
+        try:
+            self.focus_set()
+        except Exception:
+            pass
+
+    def _start_export_on_launch(self):
+        t = threading.Thread(target=self._run_export_on_launch, daemon=True)
+        t.start()
+
+    def _run_export_on_launch(self):
+        try:
+            self._ui(self._set_status, "Updating leads from Odoo...")
+
+            # Use the same python interpreter that launched the GUI
+            cmd = [
+                sys.executable,
+                "export_leads_json.py",
+                "--out",
+                str(Path(self.leads_path.get()).resolve()),
+            ]
+
+            # Run exporter and capture output for troubleshooting
+            p = subprocess.run(cmd, capture_output=True, text=True)
+
+            if p.returncode != 0:
+                msg = (p.stderr or p.stdout or "").strip() or "Unknown error"
+                self._ui(messagebox.showerror, "Lead export failed", msg[:2000])
+                self._ui(self._set_status, "Lead update failed (see error).")
+                return
+
+            # Reload the file and report count
+            leads_path = Path(self.leads_path.get().strip())
+            leads = load_leads_export(leads_path)
+            self._ui(self._set_status, f"Leads updated: {len(leads)} loaded.")
+        except Exception as e:
+            self._ui(messagebox.showerror, "Lead export error", str(e))
+            self._ui(self._set_status, "Lead update failed (unexpected error).")
 
 
 if __name__ == "__main__":
