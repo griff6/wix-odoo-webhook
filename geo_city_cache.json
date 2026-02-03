@@ -1602,5 +1602,457 @@
   "belleville|ontario ca|canada": [
     44.2436328,
     -77.3607597
+  ],
+  "rosser|manitoba ca|canada": [
+    50.0044426,
+    -97.4067036
+  ],
+  "souris|manitoba ca|canada": [
+    49.6210094,
+    -100.2582479
+  ],
+  "langdon|minnesota us|united states": [
+    44.809967,
+    -92.9288208
+  ],
+  "veteran|alberta ca|canada": [
+    52.0012993,
+    -111.1188029
+  ],
+  "goodsoil|saskatchewan ca|canada": [
+    54.399722,
+    -109.226111
+  ],
+  "malta|montana us|united states": [
+    48.3596948,
+    -107.8726879
+  ],
+  "kelvington|saskatchewan ca|canada": [
+    52.1643973,
+    -103.5228082
+  ],
+  "wawota|saskatchewan ca|canada": [
+    49.9041649,
+    -102.0241117
+  ],
+  "wandering river|alberta ca|canada": [
+    55.1956331,
+    -112.474736
+  ],
+  "wawanesa|manitoba ca|canada": [
+    49.5954697,
+    -99.6859049
+  ],
+  "erskine|alberta ca|canada": [
+    52.3201878,
+    -112.8820798
+  ],
+  "brandon|manitoba ca|canada": [
+    49.8511143,
+    -99.9608924
+  ],
+  "haywood|manitoba ca|canada": [
+    49.6688491,
+    -98.1932684
+  ],
+  "lenore|manitoba ca|canada": [
+    49.9583906,
+    -100.7487815
+  ],
+  "anola|manitoba ca|canada": [
+    49.8852225,
+    -96.6370639
+  ],
+  "st lazare|manitoba ca|canada": [
+    50.4469591,
+    -101.3042283
+  ],
+  "lucky lake|saskatchewan ca|canada": [
+    50.9850216,
+    -107.1373209
+  ],
+  "edenwold|saskatchewan ca|canada": [
+    50.6347926,
+    -104.2499525
+  ],
+  "zahl|north dakota us|united states": [
+    48.5727046,
+    -103.6910114
+  ],
+  "fort assiniboine|alberta ca|canada": [
+    54.3357539,
+    -114.7729756
+  ],
+  "brooks|alberta ca|canada": [
+    50.571027,
+    -111.893005
+  ],
+  "boissevain|manitoba ca|canada": [
+    49.2306016,
+    -100.0558052
+  ],
+  "invermay|saskatchewan ca|canada": [
+    51.8051183,
+    -103.1549282
+  ],
+  "bismarck|north dakota us|united states": [
+    46.808327,
+    -100.783739
+  ],
+  "peace river|alberta ca|canada": [
+    56.2337111,
+    -117.2910839
+  ],
+  "cochrane|alberta ca|canada": [
+    51.1874627,
+    -114.4710708
+  ],
+  "warburg|alberta ca|canada": [
+    53.1846146,
+    -114.3181098
+  ],
+  "morinville|alberta ca|canada": [
+    53.8009283,
+    -113.6506625
+  ],
+  "mountain view county|alberta ca|canada": [
+    51.6878246,
+    -114.250206
+  ],
+  "west bend|wisconsin us|united states": [
+    43.4252776,
+    -88.1834277
+  ],
+  "langham|saskatchewan ca|canada": [
+    52.3589136,
+    -106.9597961
+  ],
+  "brockway|montana us|united states": [
+    47.2977834,
+    -105.7625087
+  ],
+  "antigo|wisconsin us|united states": [
+    45.1404664,
+    -89.1524959
+  ],
+  "blacksburg|virginia us|united states": [
+    37.2296566,
+    -80.4136767
+  ],
+  "hampton|minnesota us|united states": [
+    44.61078,
+    -93.0001355
+  ],
+  "thamesville|ontario ca|canada": [
+    42.5518069,
+    -81.9771193
+  ],
+  "lake park|iowa us|united states": [
+    43.455556,
+    -95.3207429
+  ],
+  "rockyview county|alberta ca|canada": [
+    51.3953082,
+    -114.2161771
+  ],
+  "chambord|quebec ca|canada": [
+    48.4306817,
+    -72.0631082
+  ],
+  "maidstone|saskatchewan ca|canada": [
+    53.0862269,
+    -109.2960964
+  ],
+  "watson|saskatchewan ca|canada": [
+    52.1293715,
+    -104.5236191
+  ],
+  "conquest|saskatchewan ca|canada": [
+    51.5303755,
+    -107.241087
+  ],
+  "snowden|saskatchewan ca|canada": [
+    53.4895303,
+    -104.6802683
+  ],
+  "elrose|saskatchewan ca|canada": [
+    51.2000444,
+    -108.033162
+  ],
+  "rose valley|saskatchewan ca|canada": [
+    52.2897456,
+    -103.8116643
+  ],
+  "davidson|saskatchewan ca|canada": [
+    51.2647972,
+    -105.984596
+  ],
+  "portreeve|saskatchewan ca|canada": [
+    50.8222869,
+    -109.009606
+  ],
+  "watrous|saskatchewan ca|canada": [
+    51.675148,
+    -105.4655393
+  ],
+  "st. brieux|saskatchewan ca|canada": [
+    52.635293,
+    -104.8905848
+  ],
+  "bengough|saskatchewan ca|canada": [
+    49.3957345,
+    -105.1262065
+  ],
+  "dinsmore|saskatchewan ca|canada": [
+    51.3325438,
+    -107.4471085
+  ],
+  "lethbridge|alberta ca|canada": [
+    49.6945782,
+    -112.8331033
+  ],
+  "eatonia|saskatchewan ca|canada": [
+    51.2241821,
+    -109.3900359
+  ],
+  "duck lake|saskatchewan ca|canada": [
+    52.811893,
+    -106.229553
+  ],
+  "gardiner dam|saskatchewan ca|canada": [
+    51.2701392,
+    -106.8687506
+  ],
+  "abbey|saskatchewan ca|canada": [
+    50.7345503,
+    -108.7579928
+  ],
+  "dalmeny|saskatchewan ca|canada": [
+    52.3448579,
+    -106.7728666
+  ],
+  "rabbit lake|saskatchewan ca|canada": [
+    53.1415748,
+    -107.7677162
+  ],
+  "domremy|saskatchewan ca|canada": [
+    52.7882162,
+    -105.7300871
+  ],
+  "pense|saskatchewan ca|canada": [
+    50.4159384,
+    -104.9828583
+  ],
+  "st. gregor|saskatchewan ca|canada": [
+    52.1777319,
+    -104.827093
+  ],
+  "grandora|saskatchewan ca|canada": [
+    52.1076283,
+    -106.9906856
+  ],
+  "spiritwood|saskatchewan ca|canada": [
+    53.365233,
+    -107.5175024
+  ],
+  "willow bunch|saskatchewan ca|canada": [
+    49.391312,
+    -105.634918
+  ],
+  "bradwell|saskatchewan ca|canada": [
+    51.9472557,
+    -106.2328936
+  ],
+  "raymore|saskatchewan ca|canada": [
+    51.4096252,
+    -104.5292377
+  ],
+  "speers|saskatchewan ca|canada": [
+    52.7065402,
+    -107.558713
+  ],
+  "parkside|saskatchewan ca|canada": [
+    53.165741,
+    -106.5327587
+  ],
+  "bredenbury|saskatchewan ca|canada": [
+    50.9443098,
+    -102.0454237
+  ],
+  "white city|saskatchewan ca|canada": [
+    50.4424345,
+    -104.368792
+  ],
+  "penzance|saskatchewan ca|canada": [
+    51.067291,
+    -105.434418
+  ],
+  "stenen|saskatchewan ca|canada": [
+    51.8999162,
+    -102.3806693
+  ],
+  "miniota|manitoba ca|canada": [
+    50.133333,
+    -101.033333
+  ],
+  "deloraine|manitoba ca|canada": [
+    49.1926295,
+    -100.4945182
+  ],
+  "cartwright|manitoba ca|canada": [
+    49.0954298,
+    -99.3401814
+  ],
+  "ste rose|manitoba ca|canada": [
+    51.0591249,
+    -99.5194226
+  ],
+  "crystal city|manitoba ca|canada": [
+    49.14645,
+    -98.9509754
+  ],
+  "elm creek|manitoba ca|canada": [
+    49.6745872,
+    -97.9986493
+  ],
+  "rapid city|manitoba ca|canada": [
+    50.1198326,
+    -100.0350624
+  ],
+  "glenboro|manitoba ca|canada": [
+    49.5577313,
+    -99.2877494
+  ],
+  "kipling|saskatchewan ca|canada": [
+    50.1001332,
+    -102.6331656
+  ],
+  "starbuck|manitoba ca|canada": [
+    49.7684764,
+    -97.6182685
+  ],
+  "bienfait|saskatchewan ca|canada": [
+    49.1430593,
+    -102.8076095
+  ],
+  "birtle|manitoba ca|canada": [
+    50.4218411,
+    -101.0462012
+  ],
+  "blumenort|manitoba ca|canada": [
+    49.6041531,
+    -96.6928187
+  ],
+  "manitou|manitoba ca|canada": [
+    49.2398981,
+    -98.5388162
+  ],
+  "carman|manitoba ca|canada": [
+    49.5082995,
+    -98.0016853
+  ],
+  "minh|manitoba ca|canada": [
+    51.0822417,
+    -97.6079055
+  ],
+  "alexander|manitoba ca|canada": [
+    50.4349048,
+    -96.036045
+  ],
+  "macgregor|manitoba ca|canada": [
+    49.9662855,
+    -98.7788156
+  ],
+  "elgin|manitoba ca|canada": [
+    49.445692,
+    -100.2717369
+  ],
+  "rocanville|saskatchewan ca|canada": [
+    50.3823771,
+    -101.7000219
+  ],
+  "ste anne|manitoba ca|canada": [
+    49.6711222,
+    -96.6536701
+  ],
+  "erickson|manitoba ca|canada": [
+    50.4979209,
+    -99.9140913
+  ],
+  "sinclair|manitoba ca|canada": [
+    49.569059,
+    -101.2877208
+  ],
+  "pine river|manitoba ca|canada": [
+    51.786088,
+    -100.5296669
+  ],
+  "alameda|saskatchewan ca|canada": [
+    49.2652182,
+    -102.2816393
+  ],
+  "kelwood|manitoba ca|canada": [
+    50.6238521,
+    -99.4622386
+  ],
+  "la riviere|manitoba ca|canada": [
+    49.2391036,
+    -98.6798922
+  ],
+  "woodmore|manitoba ca|canada": [
+    49.1335582,
+    -96.8861845
+  ],
+  "flaxton|north dakota us|united states": [
+    48.8986389,
+    -102.3923913
+  ],
+  "kenmare|north dakota us|united states": [
+    48.674748,
+    -102.082664
+  ],
+  "newdale|manitoba ca|canada": [
+    50.3510388,
+    -100.204516
+  ],
+  "broadview|saskatchewan ca|canada": [
+    50.3789235,
+    -102.583995
+  ],
+  "zhoda|manitoba ca|canada": [
+    49.2370471,
+    -96.4869784
+  ],
+  "neudorf|saskatchewan ca|canada": [
+    50.7136022,
+    -103.0120907
+  ],
+  "treherne|manitoba ca|canada": [
+    49.6271787,
+    -98.6979401
+  ],
+  "birnie|manitoba ca|canada": [
+    49.3287415,
+    -98.90506
+  ],
+  "plumas|manitoba ca|canada": [
+    50.383333,
+    -99.083333
+  ],
+  "bagot|manitoba ca|canada": [
+    49.968373,
+    -98.6290814
+  ],
+  "st. claude|manitoba ca|canada": [
+    49.658114,
+    -98.343383
+  ],
+  "port lambton|ontario ca|canada": [
+    42.6567779,
+    -82.5062582
+  ],
+  "glen bain|saskatchewan ca|canada": [
+    49.9269389,
+    -107.0200906
   ]
 }
