@@ -19,6 +19,9 @@ Outputs:
 Notes:
 - If a lead has no city/prov (or geocoding fails), it's skipped (reported in console).
 - This assigns *one* dealer per lead (the closest). It does NOT list "all dealers within 50 km".
+
+To run this python3 lead_nearest_dealer_report_v4.py --leads leads_export.json --radius-km 100 --out lead_nearest_100km.xlsx --fetch-odoo
+
 """
 
 from __future__ import annotations
