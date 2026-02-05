@@ -598,6 +598,25 @@ def get_country_id(models, uid, country_name):
         #print(f"Unexpected error getting country ID for '{country_name}': {e}")
         return False
     
+def get_state_and_country_ids(models, uid: int, prov_state_raw: str):
+    """
+    Uses your existing normalize_state + resolve_country + get_state_id.
+    Returns (state_id, country_id). Either may be False.
+    """
+    st_code = normalize_state(prov_state_raw or "")
+    if not st_code:
+        return False, False
+
+    country_code = resolve_country(st_code)  # <- your existing logic (CA/US/AU)
+    country_id = get_country_id(models, uid, country_code) if country_code else False
+
+    # This must already search res.country.state with (code, country_id)
+    state_id = get_state_id(models, uid, prov_state_raw)  # <- your existing function
+
+    # If resolve_country succeeded but state_id didn’t (rare), still return country_id
+    return state_id or False, country_id or False
+
+    
 def get_model_id(models, uid, model_name):
     """
     Gets the Odoo ID for a given model (e.g., 'crm.lead').
@@ -751,47 +770,9 @@ def create_odoo_contact(data):
         name_val = raw_name  # <-- ensure defined before use
         if not name_val:
             raise ValueError("Contact must have a Name (or First/Last name).")
-
-        # --- Normalize state input ---
-        normalized_state = normalize_state(data.get("Prov/State", ""))
-
-        state_id = False
-        country_id = False
-
-        # 1) Pick country FIRST (default Canada)
-        country = models.execute_kw(
-            ODOO_DB, uid, ODOO_PASSWORD,
-            "res.country", "search_read",
-            [[("code", "=", "CA")]],
-            {"fields": ["id"], "limit": 1},
-        )
-        if country:
-            country_id = country[0]["id"]
-        else:
-            print("DEBUG: Could not find country 'CA' in Odoo — leaving blank.")
-
-        # 2) Now find the state constrained to that country
-        if normalized_state and country_id:
-            state_record = models.execute_kw(
-                ODOO_DB, uid, ODOO_PASSWORD,
-                "res.country.state", "search_read",
-                [[("code", "=", normalized_state), ("country_id", "=", country_id)]],
-                {"fields": ["id"], "limit": 1},
-            )
-            if state_record:
-                state_id = state_record[0]["id"]
-            else:
-                print(f"DEBUG: State '{normalized_state}' not found in Odoo for Canada.")
-
-        if not state_id and country_id and data.get("Prov/State"):
-            state_record = models.execute_kw(
-                ODOO_DB, uid, ODOO_PASSWORD,
-                "res.country.state", "search_read",
-                [[("name", "ilike", data.get("Prov/State").strip()), ("country_id", "=", country_id)]],
-                {"fields": ["id"], "limit": 1},
-            )
-            if state_record:
-                state_id = state_record[0]["id"]
+        
+        prov_state_raw = data.get("Prov/State") or data.get("State") or ""
+        state_id, country_id = get_state_and_country_ids(models, uid, prov_state_raw)
 
 
         # --- Build the contact payload ---
@@ -799,10 +780,13 @@ def create_odoo_contact(data):
             "name": name_val,
             "email": _ensure_char(data.get("Email")),
             "phone": _ensure_char(data.get("Phone")),
-            "city": _ensure_char(data.get("City")),
             "state_id": _ensure_id(state_id) or False,
             "country_id": _ensure_id(country_id) or False,
         }
+
+        city_val = (data.get("City") or "").strip()
+        if city_val:
+            contact_vals_raw["city"] = _ensure_char(city_val)
 
         # Remove any accidental None left in dict
         contact_vals = _drop_nones(contact_vals_raw)
@@ -1025,21 +1009,18 @@ def create_odoo_opportunity(opportunity_data):
         return None
 
     try:
-        # ---------------------------------------------------------------------
-        # Province/state normalization
-        # ---------------------------------------------------------------------
+
+        # ---------------------------------------------------------
+        # Correct Canada-first state resolution
+        # ---------------------------------------------------------
         prov_state_input = (opportunity_data.get("Prov/State") or "").strip()
-        city_value = opportunity_data.get("city") or opportunity_data.get("City") or ""
-        state_id = False
-        country_id = False
+        city_value = (opportunity_data.get("city") or opportunity_data.get("City") or "").strip()
 
-        # --- Normalize state input ---
-        normalized_state = normalize_state(data.get("Prov/State", ""))
 
         state_id = False
         country_id = False
 
-        # 1) Pick country FIRST (default Canada)
+        # 1) Always pick Canada first
         country = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             "res.country", "search_read",
@@ -1051,8 +1032,9 @@ def create_odoo_opportunity(opportunity_data):
         else:
             print("DEBUG: Could not find country 'CA' in Odoo — leaving blank.")
 
-        # 2) Now find the state constrained to that country
-        if normalized_state and country_id:
+        # 2) Find state constrained to Canada
+        if prov_state_input and country_id:
+            normalized_state = normalize_state(prov_state_input)
             state_record = models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD,
                 "res.country.state", "search_read",
@@ -1062,18 +1044,10 @@ def create_odoo_opportunity(opportunity_data):
             if state_record:
                 state_id = state_record[0]["id"]
             else:
-                print(f"DEBUG: State '{normalized_state}' not found in Odoo for Canada.")
+                print(f"DEBUG: State '{normalized_state}' not found in Canada.")
 
-            if not state_id and country_id and data.get("Prov/State"):
-                state_record = models.execute_kw(
-                    ODOO_DB, uid, ODOO_PASSWORD,
-                    "res.country.state", "search_read",
-                    [[("name", "ilike", data.get("Prov/State").strip()), ("country_id", "=", country_id)]],
-                    {"fields": ["id"], "limit": 1},
-                )
-                if state_record:
-                    state_id = state_record[0]["id"]
-
+        if city_value:
+            opportunity_data["city"] = city_value
 
 
         # ---------------------------------------------------------------------
@@ -1107,7 +1081,6 @@ def create_odoo_opportunity(opportunity_data):
 
 
 
-# --- NEW FUNCTION: Find Odoo User ID ---
 def find_odoo_user_id(models, uid, user_name):
     """
     Finds the Odoo user ID by name.
