@@ -1011,60 +1011,59 @@ def create_odoo_opportunity(opportunity_data):
     try:
 
         # ---------------------------------------------------------
-        # Correct Canada-first state resolution
+        # State + country resolution (CA/US/AU aware)
         # ---------------------------------------------------------
-        prov_state_input = (opportunity_data.get("Prov/State") or "").strip()
+        prov_state_input = (opportunity_data.get("Prov/State") or opportunity_data.get("State") or "").strip()
         city_value = (opportunity_data.get("city") or opportunity_data.get("City") or "").strip()
-
+        country_hint = (opportunity_data.get("Country") or "").strip()
 
         state_id = False
         country_id = False
 
-        # 1) Always pick Canada first
-        country = models.execute_kw(
-            ODOO_DB, uid, ODOO_PASSWORD,
-            "res.country", "search_read",
-            [[("code", "=", "CA")]],
-            {"fields": ["id"], "limit": 1},
-        )
-        if country:
-            country_id = country[0]["id"]
-        else:
-            print("DEBUG: Could not find country 'CA' in Odoo — leaving blank.")
-
-        # 2) Find state constrained to Canada
-        if prov_state_input and country_id:
+        if prov_state_input:
             normalized_state = normalize_state(prov_state_input)
+            country_name = resolve_country(prov_state_input, country_hint=country_hint)
+            if isinstance(country_name, str):
+                country_id = get_country_id(models, uid, country_name)
+
+            domain_code = [("code", "=", normalized_state)]
+            domain_name = [("name", "ilike", prov_state_input)]
+            if country_id:
+                domain_code.append(("country_id", "=", country_id))
+                domain_name.append(("country_id", "=", country_id))
+
             state_record = models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD,
                 "res.country.state", "search_read",
-                [[("code", "=", normalized_state), ("country_id", "=", country_id)]],
-                {"fields": ["id"], "limit": 1},
+                [domain_code], {"fields": ["id", "country_id"], "limit": 1},
+            ) or models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD,
+                "res.country.state", "search_read",
+                [domain_name], {"fields": ["id", "country_id"], "limit": 1},
             )
+
             if state_record:
                 state_id = state_record[0]["id"]
-            else:
-                print(f"DEBUG: State '{normalized_state}' not found in Canada.")
+                if not country_id and state_record[0].get("country_id"):
+                    country_id = state_record[0]["country_id"][0]
 
+        # ---------------------------------------------------------------------
+        # Build opportunity payload (avoid mutating caller dict)
+        # ---------------------------------------------------------------------
+        opportunity_vals = dict(opportunity_data)
+        opportunity_vals.pop("Prov/State", None)
+        opportunity_vals.pop("State", None)
         if city_value:
-            opportunity_data["city"] = city_value
+            opportunity_vals["city"] = city_value
+        if state_id:
+            opportunity_vals["state_id"] = state_id
+        if country_id:
+            opportunity_vals["country_id"] = country_id
 
-
-        # ---------------------------------------------------------------------
-        # Merge IDs into opportunity data
-        # ---------------------------------------------------------------------
-        opportunity_data["city"] = city_value
-        opportunity_data["state_id"] = state_id or False
-        opportunity_data["country_id"] = country_id or False
-
-        # ---------------------------------------------------------------------
-        # Create the opportunity
-        # ---------------------------------------------------------------------
-        opportunity_data.pop("Prov/State", None)
         new_opportunity_id = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD,
             "crm.lead", "create",
-            [opportunity_data],
+            [opportunity_vals],
         )
         print(f"✅ Opportunity created with ID: {new_opportunity_id}")
         return new_opportunity_id
