@@ -20,7 +20,14 @@ Notes:
 - If a lead has no city/prov (or geocoding fails), it's skipped (reported in console).
 - This assigns *one* dealer per lead (the closest). It does NOT list "all dealers within 50 km".
 
-To run this python3 lead_nearest_dealer_report_v4.py --leads leads_export.json --radius-km 100 --out lead_nearest_100km.xlsx --fetch-odoo
+To run this 
+python3 lead_nearest_dealer_report_v3.py \
+  --leads leads_export.json \
+  --use-driving \
+  --max-hours 2 \
+  --fetch-odoo \
+  --out lead_nearest_2h.xlsx
+
 
 """
 
@@ -30,6 +37,8 @@ import argparse
 import json
 import math
 import time
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -44,6 +53,8 @@ GEO_CACHE_PATH = Path("geo_city_cache.json")
 _geolocator = Nominatim(user_agent="WavcorLeadNearestDealer/1.0")
 
 DEFAULT_RADIUS_KM = 50.0
+DEFAULT_TOPK = 5
+OSRM_BASE_URL = "https://router.project-osrm.org"
 
 LEAD_COLUMNS = [
     "id",
@@ -171,6 +182,54 @@ def _load_geo_cache() -> Dict[str, Tuple[float, float]]:
 def _save_geo_cache(cache: Dict[str, Tuple[float, float]]) -> None:
     GEO_CACHE_PATH.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
 
+def _routes_cache_path() -> Path:
+    return Path("route_duration_cache.json")
+
+
+def _load_routes_cache() -> Dict[str, Dict[str, float]]:
+    path = _routes_cache_path()
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def _save_routes_cache(cache: Dict[str, Dict[str, float]]) -> None:
+    _routes_cache_path().write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _route_key(lat1: float, lon1: float, lat2: float, lon2: float) -> str:
+    return f"{lat1:.6f},{lon1:.6f}->{lat2:.6f},{lon2:.6f}"
+
+
+def _osrm_route_duration_s(
+    lat1: float, lon1: float, lat2: float, lon2: float,
+    cache: Dict[str, Dict[str, float]],
+) -> Optional[float]:
+    key = _route_key(lat1, lon1, lat2, lon2)
+    if key in cache:
+        return cache[key].get("duration_s")
+
+    coords = f"{lon1},{lat1};{lon2},{lat2}"
+    url = f"{OSRM_BASE_URL}/route/v1/driving/{coords}"
+    params = urllib.parse.urlencode({"overview": "false", "alternatives": "false"})
+    try:
+        with urllib.request.urlopen(f"{url}?{params}", timeout=20) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        routes = payload.get("routes") or []
+        if not routes:
+            return None
+        duration_s = float(routes[0].get("duration"))
+        cache[key] = {"duration_s": duration_s}
+        return duration_s
+    except Exception:
+        return None
+
 
 def geocode_city_prov(
     city: str,
@@ -244,6 +303,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--leads", required=True, help="Path to leads_export.json")
     ap.add_argument("--radius-km", type=float, default=DEFAULT_RADIUS_KM, help="Only keep leads within this distance of their nearest dealer")
+    ap.add_argument("--use-driving", action="store_true", help="Use OSRM driving time to choose nearest dealer")
+    ap.add_argument("--max-hours", type=float, default=None, help="Only keep leads within this many driving hours of their nearest dealer (requires --use-driving)")
+    ap.add_argument("--topk", type=int, default=DEFAULT_TOPK, help="When using --use-driving, only route the top K closest by straight-line distance")
     ap.add_argument("--out", default="lead_nearest_dealer.xlsx", help="Output .xlsx filename")
     ap.add_argument("--default-country", default="Canada", help="Fallback country name (default: Canada)")
     ap.add_argument("--fetch-odoo", action="store_true", help="Fetch email_from and tags from Odoo by lead ID (requires Odoo credentials in odoo_connector.py)")
@@ -262,12 +324,16 @@ def main() -> int:
     resolved: List[Tuple[Dict[str, Any], float, float]] = []
     skipped_missing = 0
     skipped_geocode = 0
+    unassigned_rows: List[Dict[str, Any]] = []
 
     # Build a set of unique keys first to minimize geocode calls
     unique_keys: Dict[str, Tuple[str, str, str]] = {}
     for lead in leads:
         city, prov, country = _lead_city_prov_country(lead, default_country=args.default_country)
         if not city or not prov:
+            out = dict(lead)
+            out["unassigned_reason"] = "missing_city_or_province"
+            unassigned_rows.append(out)
             continue
         k = _geo_key(city, prov, country)
         if k not in unique_keys:
@@ -296,6 +362,9 @@ def main() -> int:
         k = _geo_key(city, prov, country)
         coords = cache.get(k)
         if not coords:
+            out = dict(lead)
+            out["unassigned_reason"] = "geocode_failed"
+            unassigned_rows.append(out)
             skipped_geocode += 1
             continue
         lid = get_lead_id(lead)
@@ -310,29 +379,90 @@ def main() -> int:
     counts: Dict[str, int] = {}
 
     radius_km = float(args.radius_km)
+    use_driving = bool(args.use_driving)
+    max_hours = args.max_hours
+    topk = max(1, int(args.topk))
+    routes_cache = _load_routes_cache() if use_driving else {}
+    routes_cache_dirty = False
 
     for i, (lead, lat, lon) in enumerate(resolved, start=1):
-        best_name = None
-        best_dist = 1e18
-        for name, dlat, dlon in dealers:
-            dist = haversine_distance(dlat, dlon, lat, lon)
-            if dist < best_dist:
-                best_dist = dist
-                best_name = name
+        if use_driving:
+            ranked = []
+            for name, dlat, dlon in dealers:
+                dist = haversine_distance(dlat, dlon, lat, lon)
+                ranked.append((dist, name, dlat, dlon))
+            ranked.sort(key=lambda t: t[0])
+            candidates = ranked[:topk]
 
-        if best_name is None:
-            continue
+            best_name = None
+            best_duration_s = None
+            best_dist_km = None
+            for dist, name, dlat, dlon in candidates:
+                duration_s = _osrm_route_duration_s(lat, lon, dlat, dlon, routes_cache)
+                if duration_s is None:
+                    continue
+                routes_cache_dirty = True
+                if best_duration_s is None or duration_s < best_duration_s:
+                    best_duration_s = duration_s
+                    best_name = name
+                    best_dist_km = dist
 
-        if best_dist <= radius_km:
+            if best_name is None:
+                out = dict(lead)
+                out["unassigned_reason"] = "no_route_found"
+                unassigned_rows.append(out)
+                continue
+
+            if max_hours is not None and best_duration_s is not None:
+                if best_duration_s > max_hours * 3600:
+                    out = dict(lead)
+                    out["unassigned_reason"] = "over_max_hours"
+                    out["drive_time_hr"] = round(best_duration_s / 3600.0, 2)
+                    unassigned_rows.append(out)
+                    continue
+
             out = dict(lead)
             out.setdefault("tag_names", [])
             out["nearest_dealer"] = best_name
-            out["distance_km"] = round(best_dist, 1)
+            if best_dist_km is not None:
+                out["distance_km"] = round(best_dist_km, 1)
+            if best_duration_s is not None:
+                out["drive_time_hr"] = round(best_duration_s / 3600.0, 2)
             assigned_rows.append(out)
             counts[best_name] = counts.get(best_name, 0) + 1
+        else:
+            best_name = None
+            best_dist = 1e18
+            for name, dlat, dlon in dealers:
+                dist = haversine_distance(dlat, dlon, lat, lon)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_name = name
+
+            if best_name is None:
+                out = dict(lead)
+                out["unassigned_reason"] = "no_dealer_found"
+                unassigned_rows.append(out)
+                continue
+
+            if best_dist <= radius_km:
+                out = dict(lead)
+                out.setdefault("tag_names", [])
+                out["nearest_dealer"] = best_name
+                out["distance_km"] = round(best_dist, 1)
+                assigned_rows.append(out)
+                counts[best_name] = counts.get(best_name, 0) + 1
+            else:
+                out = dict(lead)
+                out["unassigned_reason"] = "over_radius_km"
+                out["distance_km"] = round(best_dist, 1)
+                unassigned_rows.append(out)
 
         if i % 250 == 0:
             print(f"Processed {i}/{len(resolved)} leads...")
+
+    if use_driving and routes_cache_dirty:
+        _save_routes_cache(routes_cache)
 
     # 2b) Optionally fetch email + tags from Odoo for the leads we actually kept
     if args.fetch_odoo:
@@ -364,6 +494,7 @@ def main() -> int:
     ws_summary = wb.active
     ws_summary.title = "Summary"
     ws_assigned = wb.create_sheet("Assigned")
+    ws_unassigned = wb.create_sheet("Unassigned")
 
     ws_summary.append(["Dealer", f"Assigned leads within {radius_km:.1f} km"])
     for dealer_name in sorted(counts.keys()):
@@ -371,7 +502,10 @@ def main() -> int:
 
     # Build one column per tag (based on tags present in assigned rows)
     tag_names = sorted({t for r in assigned_rows for t in (r.get("tag_names") or []) if t})
-    ws_assigned.append(["nearest_dealer", "distance_km", "email_from", *tag_names, *[c for c in LEAD_COLUMNS if c != "email_from"]])
+    if use_driving:
+        ws_assigned.append(["nearest_dealer", "distance_km", "drive_time_hr", "email_from", *tag_names, *[c for c in LEAD_COLUMNS if c != "email_from"]])
+    else:
+        ws_assigned.append(["nearest_dealer", "distance_km", "email_from", *tag_names, *[c for c in LEAD_COLUMNS if c != "email_from"]])
     for row in assigned_rows:
         row_tags = set(row.get("tag_names") or [])
         tag_bits = [1 if t in row_tags else 0 for t in tag_names]
@@ -383,10 +517,28 @@ def main() -> int:
                 continue
             v = row.get(c, "")
             lead_vals.append(v if not isinstance(v, (dict, list)) else str(v))
-        ws_assigned.append([row.get("nearest_dealer", ""), row.get("distance_km", ""), email, *tag_bits, *lead_vals])
+        if use_driving:
+            ws_assigned.append([row.get("nearest_dealer", ""), row.get("distance_km", ""), row.get("drive_time_hr", ""), email, *tag_bits, *lead_vals])
+        else:
+            ws_assigned.append([row.get("nearest_dealer", ""), row.get("distance_km", ""), email, *tag_bits, *lead_vals])
+
+    # Unassigned sheet (no dealer assignment)
+    ws_unassigned.append(["unassigned_reason", "distance_km", "drive_time_hr", "email_from", *tag_names, *[c for c in LEAD_COLUMNS if c != "email_from"]])
+    for row in unassigned_rows:
+        row_tags = set(row.get("tag_names") or [])
+        tag_bits = [1 if t in row_tags else 0 for t in tag_names]
+        email = row.get("email_from", "")
+        lead_vals = []
+        for c in LEAD_COLUMNS:
+            if c == "email_from":
+                continue
+            v = row.get(c, "")
+            lead_vals.append(v if not isinstance(v, (dict, list)) else str(v))
+        ws_unassigned.append([row.get("unassigned_reason", ""), row.get("distance_km", ""), row.get("drive_time_hr", ""), email, *tag_bits, *lead_vals])
 
     ws_summary.freeze_panes = "A2"
     ws_assigned.freeze_panes = "A2"
+    ws_unassigned.freeze_panes = "A2"
 
     wb.save(out_path)
     print(f"Wrote: {out_path}")

@@ -40,8 +40,8 @@
     -106.5363243
   ],
   "moose jaw|saskatchewan ca|canada": [
-    50.401515,
-    -105.542908
+    50.3967209,
+    -105.535666
   ],
   "regina|saskatchewan ca|canada": [
     50.4479733,
@@ -147,6 +147,10 @@
     53.525025,
     -106.8770352
   ],
+  "rosser|manitoba ca|canada": [
+    50.0044426,
+    -97.4067036
+  ],
   "killarney|manitoba ca|canada": [
     49.1832154,
     -99.6641898
@@ -194,6 +198,14 @@
   "lac la biche|alberta ca|canada": [
     55.2467859,
     -111.8354916
+  ],
+  "souris|manitoba ca|canada": [
+    49.6210094,
+    -100.2582479
+  ],
+  "langdon|minnesota us|united states": [
+    44.809967,
+    -92.9288208
   ],
   "warroad|minnesota us|united states": [
     48.905266,
@@ -259,6 +271,10 @@
     53.5366497,
     -109.4620026
   ],
+  "swift current|saskatchewan ca|canada": [
+    50.2849138,
+    -107.7984496
+  ],
   "roblin|manitoba ca|canada": [
     51.2282164,
     -101.3550583
@@ -302,10 +318,6 @@
   "fort qu'appelle|saskatchewan ca|canada": [
     50.7719106,
     -103.7958877
-  ],
-  "swift current|saskatchewan ca|canada": [
-    50.2849138,
-    -107.7984496
   ],
   "lloydminster|saskatchewan ca|canada": [
     53.2816669,
@@ -383,6 +395,10 @@
     44.0711837,
     -81.5755462
   ],
+  "veteran|alberta ca|canada": [
+    52.0012993,
+    -111.1188029
+  ],
   "strome|alberta ca|canada": [
     52.8108331,
     -112.0615328
@@ -398,6 +414,10 @@
   "three hills|alberta ca|canada": [
     51.7024122,
     -113.268475
+  ],
+  "melville|saskatchewan ca|canada": [
+    50.9307241,
+    -102.807296
   ],
   "eyebrow|saskatchewan ca|canada": [
     50.8,
@@ -470,6 +490,10 @@
   "vilna|alberta ca|canada": [
     54.116111,
     -111.919444
+  ],
+  "goodsoil|saskatchewan ca|canada": [
+    54.399722,
+    -109.226111
   ],
   "vermilion|alberta ca|canada": [
     53.3527093,
@@ -675,10 +699,6 @@
     50.5394196,
     -96.1494835
   ],
-  "melville|saskatchewan ca|canada": [
-    50.9307241,
-    -102.807296
-  ],
   "alsen|north dakota us|united states": [
     48.6305626,
     -98.7048488
@@ -691,9 +711,17 @@
     46.4739548,
     -96.2808631
   ],
+  "malta|montana us|united states": [
+    48.3596948,
+    -107.8726879
+  ],
   "botha|alberta ca|canada": [
     52.3062118,
     -112.5248121
+  ],
+  "gull lake|saskatchewan ca|canada": [
+    50.0958306,
+    -108.4829951
   ],
   "wetaskiwin|alberta ca|canada": [
     52.968492,
@@ -779,6 +807,10 @@
     52.0094273,
     -110.7752786
   ],
+  "kelvington|saskatchewan ca|canada": [
+    52.1643973,
+    -103.5228082
+  ],
   "debolt|alberta ca|canada": [
     55.2176942,
     -118.019943
@@ -790,6 +822,14 @@
   "hartney|manitoba ca|canada": [
     49.4815988,
     -100.5231198
+  ],
+  "wawota|saskatchewan ca|canada": [
+    49.9041649,
+    -102.0241117
+  ],
+  "wandering river|alberta ca|canada": [
+    55.1956331,
+    -112.474736
   ],
   "bellegarde|saskatchewan ca|canada": [
     49.531803,
@@ -835,6 +875,10 @@
     50.2176095,
     -103.4483712
   ],
+  "wawanesa|manitoba ca|canada": [
+    49.5954697,
+    -99.6859049
+  ],
   "oakburn|manitoba ca|canada": [
     50.566667,
     -100.583333
@@ -859,6 +903,14 @@
     52.7433563,
     -111.546907
   ],
+  "erskine|alberta ca|canada": [
+    52.3201878,
+    -112.8820798
+  ],
+  "leduc|alberta ca|canada": [
+    53.2607825,
+    -113.5511681
+  ],
   "towner|north dakota us|united states": [
     48.6481504,
     -99.2322581
@@ -866,6 +918,10 @@
   "norquay|saskatchewan ca|canada": [
     51.8842262,
     -102.0907464
+  ],
+  "brandon|manitoba ca|canada": [
+    49.8511143,
+    -99.9608924
   ],
   "fisher|minnesota us|united states": [
     47.800073,
@@ -878,6 +934,10 @@
   "linton|minnesota us|united states": [
     43.6411954,
     -94.1054004
+  ],
+  "haywood|manitoba ca|canada": [
+    49.6677854,
+    -98.196403
   ],
   "graceville|minnesota us|united states": [
     45.5695863,
@@ -895,13 +955,17 @@
     51.4242602,
     -102.921888
   ],
-  "airdrie|alberta ca|canada": [
-    51.28597,
-    -114.01062
+  "lenore|manitoba ca|canada": [
+    49.9583906,
+    -100.7487815
   ],
   "golden prairie|saskatchewan ca|canada": [
     50.2209935,
     -109.6302578
+  ],
+  "anola|manitoba ca|canada": [
+    49.8852225,
+    -96.6370639
   ],
   "amaranth|manitoba ca|canada": [
     50.6,
@@ -927,9 +991,13 @@
     55.7346878,
     -117.201276
   ],
+  "vegreville|alberta ca|canada": [
+    53.5,
+    -112.05
+  ],
   "mossbank|saskatchewan ca|canada": [
-    49.9401556,
-    -105.9625686
+    49.9402868,
+    -105.9627832
   ],
   "tisdale|saskatchewan ca|canada": [
     52.850059,
@@ -1009,7 +1077,7 @@
   ],
   "drake|saskatchewan ca|canada": [
     51.7461489,
-    -105.012433
+    -105.0125027
   ],
   "lancer|saskatchewan ca|canada": [
     50.8032852,
@@ -1018,10 +1086,6 @@
   "birch hills|saskatchewan ca|canada": [
     52.984204,
     -105.433044
-  ],
-  "gull lake|saskatchewan ca|canada": [
-    50.0958306,
-    -108.4829951
   ],
   "gray|saskatchewan ca|canada": [
     50.1713141,
@@ -1032,8 +1096,8 @@
     -103.803094
   ],
   "lindsay|montana us|united states": [
-    47.2188997,
-    -105.1538691
+    47.2215036,
+    -105.1528534
   ],
   "riverhurst|saskatchewan ca|canada": [
     50.9018837,
@@ -1159,13 +1223,13 @@
     49.7882886,
     -104.7204757
   ],
-  "red deer county|alberta ca|canada": [
-    52.1040224,
-    -113.767473
-  ],
   "minot|north dakota us|united states": [
     48.23251,
     -101.296273
+  ],
+  "red deer county|alberta ca|canada": [
+    52.1040224,
+    -113.767473
   ],
   "penn|north dakota us|united states": [
     48.2216668,
@@ -1208,8 +1272,8 @@
     -107.2201894
   ],
   "hafford|saskatchewan ca|canada": [
-    52.7256333,
-    -107.3519145
+    52.7256225,
+    -107.3521335
   ],
   "brock|saskatchewan ca|canada": [
     51.4412074,
@@ -1235,6 +1299,10 @@
     54.0175289,
     -124.0076627
   ],
+  "st lazare|manitoba ca|canada": [
+    50.4469591,
+    -101.3042283
+  ],
   "sawyer|north dakota us|united states": [
     48.089732,
     -101.053765
@@ -1243,9 +1311,17 @@
     51.2988642,
     -103.001081
   ],
+  "lucky lake|saskatchewan ca|canada": [
+    50.9850216,
+    -107.1373209
+  ],
   "tawatinaw|alberta ca|canada": [
     54.2995628,
     -113.4799795
+  ],
+  "landis|saskatchewan ca|canada": [
+    52.2,
+    -108.45
   ],
   "irma|alberta ca|canada": [
     52.917029,
@@ -1259,6 +1335,10 @@
     50.8417915,
     -101.701553
   ],
+  "edenwold|saskatchewan ca|canada": [
+    50.6347926,
+    -104.2499525
+  ],
   "picture butte|alberta ca|canada": [
     49.8759706,
     -112.781877
@@ -1271,6 +1351,14 @@
     52.7117756,
     -111.8125764
   ],
+  "zahl|north dakota us|united states": [
+    48.5727046,
+    -103.6910114
+  ],
+  "fort assiniboine|alberta ca|canada": [
+    54.3357539,
+    -114.7729756
+  ],
   "mirror|alberta ca|canada": [
     52.4657704,
     -113.1077781
@@ -1278,6 +1366,18 @@
   "rivercourse|alberta ca|canada": [
     53.0163808,
     -110.0544158
+  ],
+  "brooks|alberta ca|canada": [
+    50.571027,
+    -111.893005
+  ],
+  "boissevain|manitoba ca|canada": [
+    49.2306016,
+    -100.0558052
+  ],
+  "invermay|saskatchewan ca|canada": [
+    51.8051183,
+    -103.1549282
   ],
   "strathcona|alberta ca|canada": [
     53.5762678,
@@ -1303,13 +1403,9 @@
     49.1407635,
     -103.4934184
   ],
-  "bismarck|north dakota us|canada": [
-    46.8402531,
-    -100.7914599
-  ],
-  "leduc|alberta ca|canada": [
-    53.2607825,
-    -113.5511681
+  "bismarck|north dakota us|united states": [
+    46.808327,
+    -100.783739
   ],
   "mctaggart|saskatchewan ca|canada": [
     49.7302442,
@@ -1370,10 +1466,6 @@
   "foremost|alberta ca|canada": [
     49.4770469,
     -111.445316
-  ],
-  "landis|saskatchewan ca|canada": [
-    52.2,
-    -108.45
   ],
   "castor|alberta ca|canada": [
     52.216667,
@@ -1443,6 +1535,10 @@
     53.0640423,
     -103.757871
   ],
+  "peace river|alberta ca|canada": [
+    56.2337111,
+    -117.2910839
+  ],
   "irvine|alberta ca|canada": [
     49.9584438,
     -110.27326
@@ -1462,6 +1558,10 @@
   "gildford|montana us|united states": [
     48.585862,
     -110.2587182
+  ],
+  "cochrane|alberta ca|canada": [
+    51.1874627,
+    -114.4710708
   ],
   "elbow|saskatchewan ca|canada": [
     51.1191284,
@@ -1483,9 +1583,9 @@
     47.32111,
     -101.381548
   ],
-  "vegreville|alberta ca|canada": [
-    53.5,
-    -112.05
+  "warburg|alberta ca|canada": [
+    53.1846146,
+    -114.3181098
   ],
   "flasher|north dakota us|united states": [
     46.456113,
@@ -1535,6 +1635,10 @@
     43.9887507,
     -92.2292396
   ],
+  "morinville|alberta ca|canada": [
+    53.8009283,
+    -113.6506625
+  ],
   "star city|saskatchewan ca|canada": [
     52.8634517,
     -104.3326381
@@ -1579,6 +1683,10 @@
     42.590143,
     -82.2695626
   ],
+  "mountain view county|alberta ca|canada": [
+    51.6878246,
+    -114.250206
+  ],
   "meota , sask|saskatchewan ca|canada": [
     53.0346657,
     -108.4559976
@@ -1586,10 +1694,6 @@
   "morse|saskatchewan ca|canada": [
     50.4156515,
     -107.0374402
-  ],
-  "cereal|albacete es|spain": [
-    38.90721,
-    -1.4885895
   ],
   "coaldale|alberta ca|canada": [
     49.7256552,
@@ -1602,122 +1706,6 @@
   "belleville|ontario ca|canada": [
     44.2436328,
     -77.3607597
-  ],
-  "rosser|manitoba ca|canada": [
-    50.0044426,
-    -97.4067036
-  ],
-  "souris|manitoba ca|canada": [
-    49.6210094,
-    -100.2582479
-  ],
-  "langdon|minnesota us|united states": [
-    44.809967,
-    -92.9288208
-  ],
-  "veteran|alberta ca|canada": [
-    52.0012993,
-    -111.1188029
-  ],
-  "goodsoil|saskatchewan ca|canada": [
-    54.399722,
-    -109.226111
-  ],
-  "malta|montana us|united states": [
-    48.3596948,
-    -107.8726879
-  ],
-  "kelvington|saskatchewan ca|canada": [
-    52.1643973,
-    -103.5228082
-  ],
-  "wawota|saskatchewan ca|canada": [
-    49.9041649,
-    -102.0241117
-  ],
-  "wandering river|alberta ca|canada": [
-    55.1956331,
-    -112.474736
-  ],
-  "wawanesa|manitoba ca|canada": [
-    49.5954697,
-    -99.6859049
-  ],
-  "erskine|alberta ca|canada": [
-    52.3201878,
-    -112.8820798
-  ],
-  "brandon|manitoba ca|canada": [
-    49.8511143,
-    -99.9608924
-  ],
-  "haywood|manitoba ca|canada": [
-    49.6688491,
-    -98.1932684
-  ],
-  "lenore|manitoba ca|canada": [
-    49.9583906,
-    -100.7487815
-  ],
-  "anola|manitoba ca|canada": [
-    49.8852225,
-    -96.6370639
-  ],
-  "st lazare|manitoba ca|canada": [
-    50.4469591,
-    -101.3042283
-  ],
-  "lucky lake|saskatchewan ca|canada": [
-    50.9850216,
-    -107.1373209
-  ],
-  "edenwold|saskatchewan ca|canada": [
-    50.6347926,
-    -104.2499525
-  ],
-  "zahl|north dakota us|united states": [
-    48.5727046,
-    -103.6910114
-  ],
-  "fort assiniboine|alberta ca|canada": [
-    54.3357539,
-    -114.7729756
-  ],
-  "brooks|alberta ca|canada": [
-    50.571027,
-    -111.893005
-  ],
-  "boissevain|manitoba ca|canada": [
-    49.2306016,
-    -100.0558052
-  ],
-  "invermay|saskatchewan ca|canada": [
-    51.8051183,
-    -103.1549282
-  ],
-  "bismarck|north dakota us|united states": [
-    46.808327,
-    -100.783739
-  ],
-  "peace river|alberta ca|canada": [
-    56.2337111,
-    -117.2910839
-  ],
-  "cochrane|alberta ca|canada": [
-    51.1874627,
-    -114.4710708
-  ],
-  "warburg|alberta ca|canada": [
-    53.1846146,
-    -114.3181098
-  ],
-  "morinville|alberta ca|canada": [
-    53.8009283,
-    -113.6506625
-  ],
-  "mountain view county|alberta ca|canada": [
-    51.6878246,
-    -114.250206
   ],
   "west bend|wisconsin us|united states": [
     43.4252776,
