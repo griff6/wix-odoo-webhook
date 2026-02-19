@@ -712,6 +712,45 @@ def _osrm_route_metrics(lat1: float, lon1: float, lat2: float, lon2: float, cach
         return None
 
 
+def _osrm_table_metrics_one_to_many(
+    src_lat: float,
+    src_lon: float,
+    dests: list,
+) -> Dict[int, dict]:
+    """
+    Fetch drive duration/distance from one source to many destinations using OSRM table API.
+    dests: list of tuples (idx, dest_lat, dest_lon)
+    Returns: {idx: {"duration_s": float, "distance_m": float}}
+    """
+    if not dests:
+        return {}
+
+    # coords: source first, then destinations
+    coord_parts = [f"{src_lon},{src_lat}"] + [f"{lon},{lat}" for _, lat, lon in dests]
+    coords = ";".join(coord_parts)
+    destinations = ";".join(str(i) for i in range(1, len(coord_parts)))
+    params = urllib.parse.urlencode(
+        {
+            "sources": "0",
+            "destinations": destinations,
+            "annotations": "duration,distance",
+        }
+    )
+    url = f"{OSRM_BASE_URL}/table/v1/driving/{coords}?{params}"
+    with urllib.request.urlopen(url, timeout=25) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
+    durations = (payload.get("durations") or [[]])[0]
+    distances = (payload.get("distances") or [[]])[0]
+    out = {}
+    for i, (idx, _, _) in enumerate(dests):
+        dur = durations[i] if i < len(durations) else None
+        dist = distances[i] if i < len(distances) else None
+        if dur is None or dist is None:
+            continue
+        out[idx] = {"duration_s": float(dur), "distance_m": float(dist)}
+    return out
+
+
 def _norm_key(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip()).casefold()
 
@@ -807,20 +846,38 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
     cache_dirty = False
     candidates = []
 
-    for dealer in DEALER_LOCATIONS:
+    missing = []
+    all_rows = []
+    for idx, dealer in enumerate(DEALER_LOCATIONS):
         dealer_lat = dealer.get("Latitude")
         dealer_lon = dealer.get("Longitude")
         if dealer_lat is None or dealer_lon is None:
             continue
         key = _route_key(float(customer_lat), float(customer_lon), float(dealer_lat), float(dealer_lon))
-        had_key = key in cache
-        metrics = _osrm_route_metrics(float(customer_lat), float(customer_lon), float(dealer_lat), float(dealer_lon), cache)
-        if metrics is None:
-            continue
-        if not had_key and key in cache:
+        entry = cache.get(key)
+        if entry and entry.get("duration_s") is not None and entry.get("distance_m") is not None:
+            all_rows.append((idx, dealer, key, float(entry["duration_s"]), float(entry["distance_m"])))
+        else:
+            missing.append((idx, dealer, key, float(dealer_lat), float(dealer_lon)))
+
+    # Batch request uncached routes to avoid N requests per lead.
+    BATCH = 40
+    for i in range(0, len(missing), BATCH):
+        chunk = missing[i:i + BATCH]
+        dests = [(idx, lat, lon) for idx, _, _, lat, lon in chunk]
+        try:
+            metrics_by_idx = _osrm_table_metrics_one_to_many(float(customer_lat), float(customer_lon), dests)
+        except Exception:
+            metrics_by_idx = {}
+        for idx, dealer, key, _lat, _lon in chunk:
+            m = metrics_by_idx.get(idx)
+            if not m:
+                continue
+            cache[key] = {"duration_s": m["duration_s"], "distance_m": m["distance_m"]}
             cache_dirty = True
-        duration_s = float(metrics["duration_s"])
-        distance_m = float(metrics["distance_m"])
+            all_rows.append((idx, dealer, key, float(m["duration_s"]), float(m["distance_m"])))
+
+    for _idx, dealer, _key, duration_s, distance_m in all_rows:
         if duration_s <= max_duration_s:
             candidates.append((distance_m, duration_s, dealer))
 
@@ -828,6 +885,10 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
         _save_route_cache(cache)
 
     if not candidates:
+        print(
+            f"INFO: No dealer found within {max_drive_hours:.1f}h driving "
+            f"for ({customer_lat}, {customer_lon})."
+        )
         return None
 
     candidates.sort(key=lambda row: (row[0], row[1]))
