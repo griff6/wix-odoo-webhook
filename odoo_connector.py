@@ -754,6 +754,44 @@ def _match_dealer_option_value_by_location(selection_options: list, dealer_locat
     return None
 
 
+def _jsonrpc_call(service: str, method: str, *args):
+    payload = {
+        "jsonrpc": "2.0",
+        "method": "call",
+        "params": {"service": service, "method": method, "args": list(args)},
+        "id": 1,
+    }
+    req = urllib.request.Request(
+        f"{ODOO_URL.rstrip('/')}/jsonrpc",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    if data.get("error"):
+        raise RuntimeError(data["error"])
+    return data["result"]
+
+
+def _jsonrpc_execute_kw(model: str, method: str, args: list, kwargs: Optional[dict] = None):
+    if kwargs is None:
+        kwargs = {}
+    uid = _jsonrpc_call("common", "login", ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD)
+    if not uid:
+        raise RuntimeError("JSON-RPC authentication failed.")
+    return _jsonrpc_call(
+        "object",
+        "execute_kw",
+        ODOO_DB,
+        uid,
+        ODOO_PASSWORD,
+        model,
+        method,
+        args,
+        kwargs,
+    )
+
+
 def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX_DEALER_DRIVE_HOURS):
     """
     Find the closest dealer by DRIVING distance, but only among dealers within max_drive_hours.
@@ -806,9 +844,10 @@ def set_dealer_property_on_lead(models, uid, lead_id: int, dealer_location: str,
     Does not modify any other lead fields.
     """
     try:
-        rows = models.execute_kw(
-            ODOO_DB, uid, ODOO_PASSWORD,
-            "crm.lead", "read",
+        # Use JSON-RPC for properties payloads; XML-RPC can fail if None is nested in lead_properties.
+        rows = _jsonrpc_execute_kw(
+            "crm.lead",
+            "read",
             [[int(lead_id)]],
             {"fields": ["lead_properties"]},
         )
@@ -838,9 +877,9 @@ def set_dealer_property_on_lead(models, uid, lead_id: int, dealer_location: str,
             print(f"WARNING: Dealer property '{property_label}' not found on lead {lead_id}.")
             return False
 
-        ok = models.execute_kw(
-            ODOO_DB, uid, ODOO_PASSWORD,
-            "crm.lead", "write",
+        ok = _jsonrpc_execute_kw(
+            "crm.lead",
+            "write",
             [[int(lead_id)], {"lead_properties": props}],
         )
         return bool(ok)
