@@ -4,7 +4,7 @@
 import xmlrpc.client
 from datetime import datetime, date, timedelta 
 import math
-from typing import Optional, Union
+from typing import Optional, Union, Dict
 import re
 import string
 import traceback
