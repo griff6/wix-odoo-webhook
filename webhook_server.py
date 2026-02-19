@@ -375,6 +375,10 @@ def sync_to_odoo(data):
         city = data.get("City") or ""
         prov = data.get("Prov/State") or ""
         if city and prov:
+            print(
+                f"DEBUG dealer_sync: evaluating dealer for lead {opportunity_id} city='{city}' prov='{prov}'",
+                flush=True,
+            )
             lat, lon = get_lat_lon_from_address(city, prov)
             if lat is not None and lon is not None:
                 closest = find_closest_dealer(lat, lon)
@@ -393,6 +397,21 @@ def sync_to_odoo(data):
                             f"from closest dealer '{closest['Location']}'",
                             flush=True,
                         )
+                else:
+                    print(
+                        f"INFO dealer_sync: no dealer candidate selected for lead {opportunity_id}",
+                        flush=True,
+                    )
+            else:
+                print(
+                    f"INFO dealer_sync: geocoding failed for lead {opportunity_id} city='{city}' prov='{prov}'",
+                    flush=True,
+                )
+        else:
+            print(
+                f"INFO dealer_sync: missing city/province for lead {opportunity_id}; skipping dealer assignment",
+                flush=True,
+            )
 
         # --- Optional: add follow-up activity ---
         al_id = find_odoo_user_id(models, uid, "Al Baraniuk")

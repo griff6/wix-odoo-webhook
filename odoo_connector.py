@@ -845,6 +845,11 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
     cache = _load_route_cache()
     cache_dirty = False
     candidates = []
+    print(
+        f"DEBUG dealer: start lookup lat={customer_lat}, lon={customer_lon}, "
+        f"max_hours={max_drive_hours}",
+        flush=True,
+    )
 
     missing = []
     all_rows = []
@@ -859,6 +864,10 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
             all_rows.append((idx, dealer, key, float(entry["duration_s"]), float(entry["distance_m"])))
         else:
             missing.append((idx, dealer, key, float(dealer_lat), float(dealer_lon)))
+    print(
+        f"DEBUG dealer: routes cached={len(all_rows)}, uncached={len(missing)}",
+        flush=True,
+    )
 
     # Batch request uncached routes to avoid N requests per lead.
     BATCH = 40
@@ -868,6 +877,10 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
         try:
             metrics_by_idx = _osrm_table_metrics_one_to_many(float(customer_lat), float(customer_lon), dests)
         except Exception:
+            print(
+                f"WARNING dealer: OSRM table batch failed for {len(chunk)} destinations.",
+                flush=True,
+            )
             metrics_by_idx = {}
         for idx, dealer, key, _lat, _lon in chunk:
             m = metrics_by_idx.get(idx)
@@ -876,6 +889,10 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
             cache[key] = {"duration_s": m["duration_s"], "distance_m": m["distance_m"]}
             cache_dirty = True
             all_rows.append((idx, dealer, key, float(m["duration_s"]), float(m["distance_m"])))
+    print(
+        f"DEBUG dealer: routes available after fetch={len(all_rows)}",
+        flush=True,
+    )
 
     for _idx, dealer, _key, duration_s, distance_m in all_rows:
         if duration_s <= max_duration_s:
@@ -896,6 +913,11 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
     result = dict(dealer)
     result["Distance_km"] = round(distance_m / 1000.0, 2)
     result["Drive_time_hr"] = round(duration_s / 3600.0, 2)
+    print(
+        f"DEBUG dealer: in_range={len(candidates)} selected='{result.get('Location')}' "
+        f"distance_km={result['Distance_km']} drive_hr={result['Drive_time_hr']}",
+        flush=True,
+    )
     return result
 
 
@@ -906,6 +928,10 @@ def set_dealer_property_on_lead(models, uid, lead_id: int, dealer_location: str,
     """
     try:
         # Use JSON-RPC for properties payloads; XML-RPC can fail if None is nested in lead_properties.
+        print(
+            f"DEBUG dealer_property: lead_id={lead_id} target_dealer='{dealer_location}'",
+            flush=True,
+        )
         rows = _jsonrpc_execute_kw(
             "crm.lead",
             "read",
@@ -928,7 +954,12 @@ def set_dealer_property_on_lead(models, uid, lead_id: int, dealer_location: str,
             if not opt_value:
                 print(f"WARNING: Could not map dealer '{dealer_location}' to a Dealer property option.")
                 return False
+            print(
+                f"DEBUG dealer_property: mapped dealer='{dealer_location}' -> option_value='{opt_value}'",
+                flush=True,
+            )
             if str(item.get("value") or "") == str(opt_value):
+                print("DEBUG dealer_property: already set; no write required.", flush=True)
                 return True
             item["value"] = str(opt_value)
             changed = True
@@ -943,6 +974,7 @@ def set_dealer_property_on_lead(models, uid, lead_id: int, dealer_location: str,
             "write",
             [[int(lead_id)], {"lead_properties": props}],
         )
+        print(f"DEBUG dealer_property: write result={ok}", flush=True)
         return bool(ok)
     except Exception as e:
         print(f"ERROR setting dealer property for lead {lead_id}: {e}")
