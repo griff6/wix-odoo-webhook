@@ -9,7 +9,8 @@ from odoo_connector import (
     create_odoo_opportunity, connect_odoo, get_or_create_opportunity_tags,
     find_odoo_user_id, get_model_id,
     find_closest_dealer, find_existing_opportunity, update_odoo_opportunity,
-    post_internal_note_to_opportunity, ODOO_URL, normalize_state, schedule_activity_for_lead, 
+    post_internal_note_to_opportunity, ODOO_URL, normalize_state, schedule_activity_for_lead,
+    set_dealer_property_on_lead,
 )
 
 app = Flask(__name__)
@@ -118,16 +119,7 @@ def handle_quote_form(fields):
     if products:
         message_parts.append(f"<b>Products Interested In:</b> {products}")
 
-    # Step 4: Append dealer info last
-    dealer_info = build_dealer_info(data)
-    if dealer_info:
-        dealer_html = (
-            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
-            + dealer_info.replace("\n", "<br>")
-        )
-        message_parts.append(dealer_html)
-
-    # Step 5: Combine and assign final HTML message
+    # Step 4: Combine and assign final HTML message
     data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
     #print(
@@ -173,16 +165,7 @@ def handle_contact_form(fields):
     if message_value:
         message_parts.append(message_value.replace("\n", "<br>"))
 
-    # Step 5: Append dealer info last
-    dealer_info = build_dealer_info(data)
-    if dealer_info:
-        dealer_html = (
-            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
-            + dealer_info.replace("\n", "<br>")
-        )
-        message_parts.append(dealer_html)
-
-    # Step 6: Combine all parts into one clean HTML message
+    # Step 5: Combine all parts into one clean HTML message
     data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
     #print(
@@ -237,16 +220,7 @@ def handle_manhole_quote_form(fields):
         f"<b>Additional Info:</b> {extra_info or 'N/A'}"
     )
 
-    # Step 4: Build and append dealer info last
-    dealer_info = build_dealer_info(data)
-    if dealer_info:
-        dealer_html = (
-            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
-            + dealer_info.replace("\n", "<br>")
-        )
-        message_parts.append(dealer_html)
-
-    # Step 5: Join all parts with <br><br> spacing for readability
+    # Step 4: Join all parts with <br><br> spacing for readability
     data["Message"] = "<br><br>".join([part for part in message_parts if part])
 
     #print(
@@ -288,15 +262,7 @@ def build_common_data(fields):
     elif raw_products:
         data["Products Interest"] = list(raw_products)
 
-    # --- Append dealer info ---
-    dealer_info = build_dealer_info(data)
-    if dealer_info:
-        data["Message"] += (
-            "<br><br><b>--- Closest Dealer Recommendation ---</b><br>"
-            + dealer_info.replace("\n", "<br>")
-        )
-
-    # 🔧 Important: Replace *after* everything has been appended
+    # 🔧 Important: Replace after message composition
     data["Message"] = data["Message"].replace("\n", "<br>")
 
     #print(f"DEBUG: Final Message to send to Odoo:\n{data['Message']}", flush=True)
@@ -308,7 +274,7 @@ def build_common_data(fields):
 # 4️⃣  Dealer lookup and geocoding
 # --------------------------------------------------------------------
 def build_dealer_info(data):
-    """Find nearest dealer and return formatted string"""
+    """Find nearest dealer (driving <=2h) and return formatted string."""
     if not data["City"] or not data["Prov/State"]:
         return ""
     lat, lon = get_lat_lon_from_address(data["City"], data["Prov/State"])
@@ -319,9 +285,8 @@ def build_dealer_info(data):
         return ""
     return (
         f"Closest Dealer: {closest['Location']}\n"
-        f"Contact: {closest['Contact']}\n"
-        f"Phone: {closest['Phone']}\n"
-        f"Distance: {closest['Distance_km']} km"
+        f"Drive Distance: {closest['Distance_km']} km\n"
+        f"Drive Time: {closest['Drive_time_hr']} hr"
     )
 
 
@@ -405,6 +370,29 @@ def sync_to_odoo(data):
 
         if not opportunity_id:
             return {"status": "error", "message": "Opportunity create/update failed"}
+
+        # --- Set Dealer property on the lead/opportunity (driving-distance logic) ---
+        city = data.get("City") or ""
+        prov = data.get("Prov/State") or ""
+        if city and prov:
+            lat, lon = get_lat_lon_from_address(city, prov)
+            if lat is not None and lon is not None:
+                closest = find_closest_dealer(lat, lon)
+                if closest and closest.get("Location"):
+                    set_ok = set_dealer_property_on_lead(models, uid, opportunity_id, closest["Location"])
+                    if set_ok:
+                        print(
+                            f"🏷️ Set Dealer property on lead {opportunity_id} "
+                            f"to closest in-range dealer: {closest['Location']} "
+                            f"({closest.get('Distance_km')} km, {closest.get('Drive_time_hr')} hr)",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"⚠️ Could not set Dealer property on lead {opportunity_id} "
+                            f"from closest dealer '{closest['Location']}'",
+                            flush=True,
+                        )
 
         # --- Optional: add follow-up activity ---
         al_id = find_odoo_user_id(models, uid, "Al Baraniuk")

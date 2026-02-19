@@ -8,6 +8,10 @@ from typing import Optional, Union
 import re
 import string
 import traceback
+import json
+import urllib.parse
+import urllib.request
+from pathlib import Path
 
 ODOO_URL = 'https://wavcor-international-inc2.odoo.com'
 #ODOO_URL = 'https://wavcor-test-2025-07-20.odoo.com'
@@ -18,6 +22,9 @@ ODOO_DB = 'wavcor-international-inc2'
 ODOO_USERNAME = 'sales@wavcor.ca'
 ODOO_PASSWORD = 'wavcor3702'
 CRM_LEAD_MODEL_ID = 1082
+OSRM_BASE_URL = "https://router.project-osrm.org"
+ROUTE_CACHE_PATH = Path("route_duration_cache.json")
+MAX_DEALER_DRIVE_HOURS = 2.0
 
 def _ensure_char(v):
     """Return a safe Char/Text value: empty string for None."""
@@ -659,30 +666,187 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     distance = R * c
     return distance
 
-def find_closest_dealer(customer_lat, customer_lon):
+def _route_key(lat1: float, lon1: float, lat2: float, lon2: float) -> str:
+    return f"{lat1:.6f},{lon1:.6f}->{lat2:.6f},{lon2:.6f}"
+
+
+def _load_route_cache() -> dict:
+    if not ROUTE_CACHE_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(ROUTE_CACHE_PATH.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_route_cache(cache: dict) -> None:
+    try:
+        ROUTE_CACHE_PATH.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"WARNING: Failed to save route cache: {e}")
+
+
+def _osrm_route_metrics(lat1: float, lon1: float, lat2: float, lon2: float, cache: dict) -> Optional[dict]:
+    key = _route_key(lat1, lon1, lat2, lon2)
+    if key in cache:
+        entry = cache[key] or {}
+        if entry.get("duration_s") is not None and entry.get("distance_m") is not None:
+            return entry
+
+    coords = f"{lon1},{lat1};{lon2},{lat2}"
+    url = f"{OSRM_BASE_URL}/route/v1/driving/{coords}"
+    params = urllib.parse.urlencode({"overview": "false", "alternatives": "false"})
+    try:
+        with urllib.request.urlopen(f"{url}?{params}", timeout=20) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        routes = payload.get("routes") or []
+        if not routes:
+            return None
+        route = routes[0]
+        duration_s = float(route.get("duration"))
+        distance_m = float(route.get("distance"))
+        cache[key] = {"duration_s": duration_s, "distance_m": distance_m}
+        return cache[key]
+    except Exception:
+        return None
+
+
+def _norm_key(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip()).casefold()
+
+
+def _compact_alnum(s: str) -> str:
+    return "".join(ch for ch in _norm_key(s) if ch.isalnum())
+
+
+def _match_dealer_option_value_by_location(selection_options: list, dealer_location: str) -> Optional[str]:
     """
-    Finds the closest dealer from the predefined DEALER_LOCATIONS.
-    Returns a dictionary of the closest dealer's info or None if no dealers.
+    Map a dealer location string (e.g. 'Redvers Co-op') to a Dealer property option key.
+    Selection options come in shape: [[key, label], ...].
+    """
+    if not dealer_location:
+        return None
+    needle = _norm_key(dealer_location)
+    needle_compact = _compact_alnum(dealer_location)
+    if not needle:
+        return None
+
+    labels = []
+    for option in selection_options or []:
+        if isinstance(option, (list, tuple)) and len(option) >= 2:
+            labels.append((str(option[0]), str(option[1])))
+
+    exact = [opt for opt in labels if _norm_key(opt[1]) == needle]
+    if len(exact) == 1:
+        return exact[0][0]
+
+    contains = [opt for opt in labels if needle in _norm_key(opt[1]) or (needle_compact and needle_compact in _compact_alnum(opt[1]))]
+    if len(contains) == 1:
+        return contains[0][0]
+    if len(contains) > 1:
+        contains_sorted = sorted(contains, key=lambda x: len(_norm_key(x[1])))
+        return contains_sorted[-1][0]
+
+    reverse = [opt for opt in labels if _norm_key(opt[1]) in needle or (_compact_alnum(opt[1]) and _compact_alnum(opt[1]) in needle_compact)]
+    if len(reverse) == 1:
+        return reverse[0][0]
+    return None
+
+
+def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX_DEALER_DRIVE_HOURS):
+    """
+    Find the closest dealer by DRIVING distance, but only among dealers within max_drive_hours.
+    Evaluates all dealers (not first match), then picks the shortest driving distance.
+    Returns dealer dict with Distance_km and Drive_time_hr, or None if no route/dealer in threshold.
     """
     if not DEALER_LOCATIONS:
         print("No dealer locations defined.")
         return None
 
-    closest_dealer = None
-    min_distance = float('inf') # Initialize with a very large number
+    max_duration_s = max_drive_hours * 3600.0
+    cache = _load_route_cache()
+    cache_dirty = False
+    candidates = []
 
     for dealer in DEALER_LOCATIONS:
-        dealer_lat = dealer["Latitude"]
-        dealer_lon = dealer["Longitude"]
-        
-        distance = haversine_distance(customer_lat, customer_lon, dealer_lat, dealer_lon)
-        
-        if distance < min_distance:
-            min_distance = distance
-            closest_dealer = dealer
-            closest_dealer["Distance_km"] = round(distance, 2) # Add distance to the result
+        dealer_lat = dealer.get("Latitude")
+        dealer_lon = dealer.get("Longitude")
+        if dealer_lat is None or dealer_lon is None:
+            continue
+        key = _route_key(float(customer_lat), float(customer_lon), float(dealer_lat), float(dealer_lon))
+        had_key = key in cache
+        metrics = _osrm_route_metrics(float(customer_lat), float(customer_lon), float(dealer_lat), float(dealer_lon), cache)
+        if metrics is None:
+            continue
+        if not had_key and key in cache:
+            cache_dirty = True
+        duration_s = float(metrics["duration_s"])
+        distance_m = float(metrics["distance_m"])
+        if duration_s <= max_duration_s:
+            candidates.append((distance_m, duration_s, dealer))
 
-    return closest_dealer
+    if cache_dirty:
+        _save_route_cache(cache)
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda row: (row[0], row[1]))
+    distance_m, duration_s, dealer = candidates[0]
+    result = dict(dealer)
+    result["Distance_km"] = round(distance_m / 1000.0, 2)
+    result["Drive_time_hr"] = round(duration_s / 3600.0, 2)
+    return result
+
+
+def set_dealer_property_on_lead(models, uid, lead_id: int, dealer_location: str, property_label: str = "Dealer") -> bool:
+    """
+    Set only the Dealer property value on crm.lead.lead_properties.
+    Does not modify any other lead fields.
+    """
+    try:
+        rows = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "crm.lead", "read",
+            [[int(lead_id)]],
+            {"fields": ["lead_properties"]},
+        )
+        if not rows:
+            return False
+        props = rows[0].get("lead_properties") or []
+
+        changed = False
+        for item in props:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "selection":
+                continue
+            if _norm_key(item.get("string") or "") != _norm_key(property_label):
+                continue
+            opt_value = _match_dealer_option_value_by_location(item.get("selection") or [], dealer_location)
+            if not opt_value:
+                print(f"WARNING: Could not map dealer '{dealer_location}' to a Dealer property option.")
+                return False
+            if str(item.get("value") or "") == str(opt_value):
+                return True
+            item["value"] = str(opt_value)
+            changed = True
+            break
+
+        if not changed:
+            print(f"WARNING: Dealer property '{property_label}' not found on lead {lead_id}.")
+            return False
+
+        ok = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "crm.lead", "write",
+            [[int(lead_id)], {"lead_properties": props}],
+        )
+        return bool(ok)
+    except Exception as e:
+        print(f"ERROR setting dealer property for lead {lead_id}: {e}")
+        return False
 
 
 def get_or_create_tags(models, uid, tags):
