@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import json, traceback, time
+import re
 from datetime import datetime, timezone, timedelta
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
@@ -243,12 +244,26 @@ def handle_manhole_quote_form(fields):
 # --------------------------------------------------------------------
 # 3️⃣  Shared helper: parse Wix fields into normalized dict
 # --------------------------------------------------------------------
+def format_north_american_phone(phone_value):
+    """Format 10-digit or 11-digit (leading 1) NANP numbers with dashes."""
+    raw = (phone_value or "").strip()
+    if not raw:
+        return ""
+
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 10:
+        return f"{digits[0:3]}-{digits[3:6]}-{digits[6:10]}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"1-{digits[1:4]}-{digits[4:7]}-{digits[7:11]}"
+    return raw
+
+
 def build_common_data(fields):
     """Flatten Wix fields into your normalized data dict"""
     data = {
         "Name": f"{fields.get('First name', '')} {fields.get('Last name', '')}".strip(),
         "Email": fields.get("Email"),
-        "Phone": fields.get("Phone"),
+        "Phone": format_north_american_phone(fields.get("Phone")),
         "City": fields.get("City"),
         "Prov/State": normalize_state(fields.get("Province/State", "")),
         "Products Interest": [],
@@ -345,11 +360,41 @@ def sync_to_odoo(data):
         opportunity_tag_ids = get_or_create_opportunity_tags(models, uid, data["Products Interest"])
         message_html = data["Message"]
 
+        city = data.get("City") or ""
+        prov = data.get("Prov/State") or ""
+        closest = None
+        geocode_failed = False
+
+        if city and prov:
+            lat, lon = get_lat_lon_from_address(city, prov)
+            if lat is not None and lon is not None:
+                closest = find_closest_dealer(lat, lon)
+            else:
+                geocode_failed = True
+
+        dealer_note_lines = []
+        if closest:
+            if closest.get("Contact"):
+                dealer_note_lines.append(f"Dealer Contact Name: {closest['Contact']}")
+            if closest.get("Phone"):
+                dealer_note_lines.append(f"Dealer Contact Phone: {closest['Phone']}")
+
+        dealer_note_html = (
+            "<b>Dealer Contact</b><br>" + "<br>".join(dealer_note_lines)
+            if dealer_note_lines else ""
+        )
+        if message_html and dealer_note_html:
+            description_html = f"{message_html}<br><br>{dealer_note_html}"
+        elif dealer_note_html:
+            description_html = dealer_note_html
+        else:
+            description_html = message_html
+
         if existing_opp:
             print(f"📂 Updating existing opportunity {existing_opp['id']}", flush=True)
             update_data = {
                 "partner_id": contact_id,
-                "description": message_html,
+                "description": description_html,
                 "tag_ids": [(6, 0, opportunity_tag_ids)] if opportunity_tag_ids else False,
             }
             update_odoo_opportunity(existing_opp["id"], update_data)
@@ -359,7 +404,7 @@ def sync_to_odoo(data):
             opp_data = {
                 "name": opportunity_name,
                 "partner_id": contact_id,
-                "description": message_html,
+                "description": description_html,
                 "tag_ids": [(6, 0, opportunity_tag_ids)] if opportunity_tag_ids else False,
                 "city": data.get("City") or False,
                 "Prov/State": data.get("Prov/State") or "",
@@ -372,39 +417,34 @@ def sync_to_odoo(data):
             return {"status": "error", "message": "Opportunity create/update failed"}
 
         # --- Set Dealer property on the lead/opportunity (driving-distance logic) ---
-        city = data.get("City") or ""
-        prov = data.get("Prov/State") or ""
         if city and prov:
             print(
                 f"DEBUG dealer_sync: evaluating dealer for lead {opportunity_id} city='{city}' prov='{prov}'",
                 flush=True,
             )
-            lat, lon = get_lat_lon_from_address(city, prov)
-            if lat is not None and lon is not None:
-                closest = find_closest_dealer(lat, lon)
-                if closest and closest.get("Location"):
-                    set_ok = set_dealer_property_on_lead(models, uid, opportunity_id, closest["Location"])
-                    if set_ok:
-                        print(
-                            f"🏷️ Set Dealer property on lead {opportunity_id} "
-                            f"to closest in-range dealer: {closest['Location']} "
-                            f"({closest.get('Distance_km')} km, {closest.get('Drive_time_hr')} hr)",
-                            flush=True,
-                        )
-                    else:
-                        print(
-                            f"⚠️ Could not set Dealer property on lead {opportunity_id} "
-                            f"from closest dealer '{closest['Location']}'",
-                            flush=True,
-                        )
-                else:
+            if closest and closest.get("Location"):
+                set_ok = set_dealer_property_on_lead(models, uid, opportunity_id, closest["Location"])
+                if set_ok:
                     print(
-                        f"INFO dealer_sync: no dealer candidate selected for lead {opportunity_id}",
+                        f"🏷️ Set Dealer property on lead {opportunity_id} "
+                        f"to closest in-range dealer: {closest['Location']} "
+                        f"({closest.get('Distance_km')} km, {closest.get('Drive_time_hr')} hr)",
                         flush=True,
                     )
-            else:
+                else:
+                    print(
+                        f"⚠️ Could not set Dealer property on lead {opportunity_id} "
+                        f"from closest dealer '{closest['Location']}'",
+                        flush=True,
+                    )
+            elif geocode_failed:
                 print(
                     f"INFO dealer_sync: geocoding failed for lead {opportunity_id} city='{city}' prov='{prov}'",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"INFO dealer_sync: no dealer candidate selected for lead {opportunity_id}",
                     flush=True,
                 )
         else:
