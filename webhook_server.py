@@ -19,6 +19,21 @@ app = Flask(__name__)
 geolocator = Nominatim(user_agent="WavcorWebhook")
 DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
 GEOCODE_CACHE = {}
+GEOCODE_PROVINCE_NAMES = {
+    "AB": "Alberta",
+    "BC": "British Columbia",
+    "MB": "Manitoba",
+    "NB": "New Brunswick",
+    "NL": "Newfoundland and Labrador",
+    "NS": "Nova Scotia",
+    "NT": "Northwest Territories",
+    "NU": "Nunavut",
+    "ON": "Ontario",
+    "PE": "Prince Edward Island",
+    "QC": "Quebec",
+    "SK": "Saskatchewan",
+    "YT": "Yukon",
+}
 
 
 def _nearest_dealer_by_distance(customer_lat, customer_lon):
@@ -419,12 +434,16 @@ def build_dealer_info(data):
 
 def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
     """Geocode city+province to latitude/longitude, with retries"""
-    full_address = f"{city}, {province_state}, {country}"
+    province_for_geocode = GEOCODE_PROVINCE_NAMES.get(
+        str(province_state or "").strip().upper(),
+        province_state,
+    )
+    full_address = f"{city}, {province_for_geocode}, {country}"
     cache_key = (city or "").strip().lower(), (province_state or "").strip().upper(), (country or "").strip().lower()
     if cache_key in GEOCODE_CACHE:
         return GEOCODE_CACHE[cache_key]
 
-    #print(f"DEBUG: Geocoding {full_address} (attempt {attempt})", flush=True)
+    print(f"DEBUG: Geocoding '{full_address}' (attempt {attempt})", flush=True)
     try:
         location = geolocator.geocode(full_address, timeout=10)
         if location:
