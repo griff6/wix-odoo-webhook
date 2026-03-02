@@ -29,6 +29,9 @@ MAX_DEALER_DRIVE_HOURS = 2.0
 MAX_ROUTE_CANDIDATES = 35
 DIRECT_DISTANCE_RADIUS_PER_HOUR_KM = 120.0
 DIRECT_DISTANCE_BUFFER_KM = 75.0
+OSRM_ROUTE_TIMEOUT_S = 4
+OSRM_TABLE_TIMEOUT_S = 8
+OSRM_ROUTE_FALLBACK_MAX_CALLS = 8
 
 def _ensure_char(v):
     """Return a safe Char/Text value: empty string for None."""
@@ -697,7 +700,7 @@ def _osrm_route_metrics(lat1: float, lon1: float, lat2: float, lon2: float, cach
     url = f"{OSRM_BASE_URL}/route/v1/driving/{coords}"
     params = urllib.parse.urlencode({"overview": "false", "alternatives": "false"})
     try:
-        with urllib.request.urlopen(f"{url}?{params}", timeout=20) as resp:
+        with urllib.request.urlopen(f"{url}?{params}", timeout=OSRM_ROUTE_TIMEOUT_S) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
         routes = payload.get("routes") or []
         if not routes:
@@ -736,7 +739,7 @@ def _osrm_table_metrics_one_to_many(
         }
     )
     url = f"{OSRM_BASE_URL}/table/v1/driving/{coords}?{params}"
-    with urllib.request.urlopen(url, timeout=25) as resp:
+    with urllib.request.urlopen(url, timeout=OSRM_TABLE_TIMEOUT_S) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     durations = (payload.get("durations") or [[]])[0]
     distances = (payload.get("distances") or [[]])[0]
@@ -904,7 +907,8 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
             metrics_by_idx = {}
 
             # Fallback: table endpoint can fail/rate-limit; retry with single route calls.
-            for idx, dealer, key, dlat, dlon in chunk:
+            # Keep this bounded so requests do not hang when OSRM is degraded.
+            for idx, dealer, key, dlat, dlon in chunk[:OSRM_ROUTE_FALLBACK_MAX_CALLS]:
                 m = _osrm_route_metrics(
                     float(customer_lat),
                     float(customer_lon),
