@@ -902,6 +902,21 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
                 flush=True,
             )
             metrics_by_idx = {}
+
+            # Fallback: table endpoint can fail/rate-limit; retry with single route calls.
+            for idx, dealer, key, dlat, dlon in chunk:
+                m = _osrm_route_metrics(
+                    float(customer_lat),
+                    float(customer_lon),
+                    float(dlat),
+                    float(dlon),
+                    cache,
+                )
+                if m and m.get("duration_s") is not None and m.get("distance_m") is not None:
+                    metrics_by_idx[idx] = {
+                        "duration_s": float(m["duration_s"]),
+                        "distance_m": float(m["distance_m"]),
+                    }
         for idx, dealer, key, _lat, _lon in chunk:
             m = metrics_by_idx.get(idx)
             if not m:

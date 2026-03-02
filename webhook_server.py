@@ -12,13 +12,34 @@ from odoo_connector import (
     find_odoo_user_id, get_model_id,
     find_closest_dealer, find_existing_opportunity, update_odoo_opportunity,
     post_internal_note_to_opportunity, ODOO_URL, normalize_state, schedule_activity_for_lead,
-    set_dealer_property_on_lead,
+    set_dealer_property_on_lead, DEALER_LOCATIONS, haversine_distance,
 )
 
 app = Flask(__name__)
 geolocator = Nominatim(user_agent="WavcorWebhook")
 DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
 GEOCODE_CACHE = {}
+
+
+def _nearest_dealer_by_distance(customer_lat, customer_lon):
+    """Fallback for public lookup page when routing API is unavailable."""
+    best = None
+    for dealer in DEALER_LOCATIONS:
+        dlat = dealer.get("Latitude")
+        dlon = dealer.get("Longitude")
+        if dlat is None or dlon is None:
+            continue
+        km = haversine_distance(float(customer_lat), float(customer_lon), float(dlat), float(dlon))
+        if best is None or km < best[0]:
+            best = (km, dealer)
+    if not best:
+        return None
+    km, dealer = best
+    result = dict(dealer)
+    result["Distance_km"] = round(km, 2)
+    result["Drive_time_hr"] = round(km / 80.0, 2)
+    result["route_mode"] = "distance_fallback"
+    return result
 
 
 def _set_cors_headers(resp):
@@ -84,14 +105,16 @@ def nearest_dealer():
 
         closest = find_closest_dealer(lat, lon)
         if not closest:
-            return jsonify({
-                "status": "no_match",
-                "message": "No dealer found within configured driving range.",
-                "city": city,
-                "province": province,
-                "latitude": lat,
-                "longitude": lon,
-            }), 200
+            closest = _nearest_dealer_by_distance(lat, lon)
+            if not closest:
+                return jsonify({
+                    "status": "no_match",
+                    "message": "No dealer found within configured driving range.",
+                    "city": city,
+                    "province": province,
+                    "latitude": lat,
+                    "longitude": lon,
+                }), 200
 
         return jsonify({
             "status": "ok",
@@ -105,6 +128,7 @@ def nearest_dealer():
                 "phone": closest.get("Phone"),
                 "distance_km": closest.get("Distance_km"),
                 "drive_time_hr": closest.get("Drive_time_hr"),
+                "route_mode": closest.get("route_mode", "osrm"),
             },
         }), 200
     except Exception as e:
