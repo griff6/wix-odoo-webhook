@@ -30,7 +30,7 @@ MAX_ROUTE_CANDIDATES = 35
 DIRECT_DISTANCE_RADIUS_PER_HOUR_KM = 120.0
 DIRECT_DISTANCE_BUFFER_KM = 75.0
 OSRM_ROUTE_TIMEOUT_S = 4
-OSRM_TABLE_TIMEOUT_S = 8
+OSRM_TABLE_TIMEOUT_S = 15
 OSRM_ROUTE_FALLBACK_MAX_CALLS = 8
 
 def _ensure_char(v):
@@ -899,16 +899,37 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
         dests = [(idx, lat, lon) for idx, _, _, lat, lon in chunk]
         try:
             metrics_by_idx = _osrm_table_metrics_one_to_many(float(customer_lat), float(customer_lon), dests)
-        except Exception:
+        except Exception as e:
             print(
-                f"WARNING dealer: OSRM table batch failed for {len(chunk)} destinations.",
+                f"WARNING dealer: OSRM table batch failed for {len(chunk)} destinations. error={e}",
                 flush=True,
             )
             metrics_by_idx = {}
 
+            # Retry table in smaller chunks. Some servers reject/timeout larger matrices.
+            if len(chunk) > 1:
+                SMALL_BATCH = 10
+                for j in range(0, len(chunk), SMALL_BATCH):
+                    small_chunk = chunk[j:j + SMALL_BATCH]
+                    small_dests = [(idx, lat, lon) for idx, _, _, lat, lon in small_chunk]
+                    try:
+                        small_metrics = _osrm_table_metrics_one_to_many(
+                            float(customer_lat),
+                            float(customer_lon),
+                            small_dests,
+                        )
+                        metrics_by_idx.update(small_metrics)
+                    except Exception as e_small:
+                        print(
+                            f"WARNING dealer: OSRM small-table batch failed for {len(small_chunk)} "
+                            f"destinations. error={e_small}",
+                            flush=True,
+                        )
+
             # Fallback: table endpoint can fail/rate-limit; retry with single route calls.
             # Keep this bounded so requests do not hang when OSRM is degraded.
-            for idx, dealer, key, dlat, dlon in chunk[:OSRM_ROUTE_FALLBACK_MAX_CALLS]:
+            unresolved = [(idx, dealer, key, dlat, dlon) for idx, dealer, key, dlat, dlon in chunk if idx not in metrics_by_idx]
+            for idx, dealer, key, dlat, dlon in unresolved[:OSRM_ROUTE_FALLBACK_MAX_CALLS]:
                 m = _osrm_route_metrics(
                     float(customer_lat),
                     float(customer_lon),
