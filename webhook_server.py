@@ -18,6 +18,7 @@ from odoo_connector import (
 app = Flask(__name__)
 geolocator = Nominatim(user_agent="WavcorWebhook")
 DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
+GEOCODE_CACHE = {}
 
 
 def _set_cors_headers(resp):
@@ -395,12 +396,17 @@ def build_dealer_info(data):
 def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
     """Geocode city+province to latitude/longitude, with retries"""
     full_address = f"{city}, {province_state}, {country}"
+    cache_key = (city or "").strip().lower(), (province_state or "").strip().upper(), (country or "").strip().lower()
+    if cache_key in GEOCODE_CACHE:
+        return GEOCODE_CACHE[cache_key]
+
     #print(f"DEBUG: Geocoding {full_address} (attempt {attempt})", flush=True)
     try:
         location = geolocator.geocode(full_address, timeout=10)
         if location:
             print(f"DEBUG: Success → {location.latitude}, {location.longitude}", flush=True)
-            return location.latitude, location.longitude
+            GEOCODE_CACHE[cache_key] = (location.latitude, location.longitude)
+            return GEOCODE_CACHE[cache_key]
         print(f"WARNING: Could not geocode '{full_address}'", flush=True)
         return None, None
     except GeocoderTimedOut:

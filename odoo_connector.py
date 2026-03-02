@@ -25,6 +25,10 @@ CRM_LEAD_MODEL_ID = 1082
 OSRM_BASE_URL = "https://router.project-osrm.org"
 ROUTE_CACHE_PATH = Path("route_duration_cache.json")
 MAX_DEALER_DRIVE_HOURS = 2.0
+# Performance tuning: route only nearest candidates instead of all dealers.
+MAX_ROUTE_CANDIDATES = 35
+DIRECT_DISTANCE_RADIUS_PER_HOUR_KM = 120.0
+DIRECT_DISTANCE_BUFFER_KM = 75.0
 
 def _ensure_char(v):
     """Return a safe Char/Text value: empty string for None."""
@@ -846,21 +850,42 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
         flush=True,
     )
 
-    missing = []
-    all_rows = []
+    direct_rows = []
     for idx, dealer in enumerate(DEALER_LOCATIONS):
         dealer_lat = dealer.get("Latitude")
         dealer_lon = dealer.get("Longitude")
         if dealer_lat is None or dealer_lon is None:
             continue
+        direct_km = haversine_distance(
+            float(customer_lat), float(customer_lon), float(dealer_lat), float(dealer_lon)
+        )
+        direct_rows.append((direct_km, idx, dealer, float(dealer_lat), float(dealer_lon)))
+
+    if not direct_rows:
+        print("No dealers with coordinates available.", flush=True)
+        return None
+
+    # Pre-filter candidates by direct distance so first-lookups are fast.
+    # We still use routing for final winner among this subset.
+    direct_rows.sort(key=lambda row: row[0])
+    radius_km = (max_drive_hours * DIRECT_DISTANCE_RADIUS_PER_HOUR_KM) + DIRECT_DISTANCE_BUFFER_KM
+    subset = [row for row in direct_rows if row[0] <= radius_km]
+    if len(subset) < MAX_ROUTE_CANDIDATES:
+        subset = direct_rows[:MAX_ROUTE_CANDIDATES]
+    elif len(subset) > MAX_ROUTE_CANDIDATES:
+        subset = subset[:MAX_ROUTE_CANDIDATES]
+
+    missing = []
+    all_rows = []
+    for _direct_km, idx, dealer, dealer_lat, dealer_lon in subset:
         key = _route_key(float(customer_lat), float(customer_lon), float(dealer_lat), float(dealer_lon))
         entry = cache.get(key)
         if entry and entry.get("duration_s") is not None and entry.get("distance_m") is not None:
             all_rows.append((idx, dealer, key, float(entry["duration_s"]), float(entry["distance_m"])))
         else:
-            missing.append((idx, dealer, key, float(dealer_lat), float(dealer_lon)))
+            missing.append((idx, dealer, key, dealer_lat, dealer_lon))
     print(
-        f"DEBUG dealer: routes cached={len(all_rows)}, uncached={len(missing)}",
+        f"DEBUG dealer: candidates={len(subset)} routes_cached={len(all_rows)} uncached={len(missing)}",
         flush=True,
     )
 
