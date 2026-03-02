@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import json, traceback, time
 import re
+import os
 from datetime import datetime, timezone, timedelta
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
@@ -16,6 +17,19 @@ from odoo_connector import (
 
 app = Flask(__name__)
 geolocator = Nominatim(user_agent="WavcorWebhook")
+DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
+
+
+def _set_cors_headers(resp):
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key"
+    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    return resp
+
+
+@app.after_request
+def _after_request(resp):
+    return _set_cors_headers(resp)
 
 # --------------------------------------------------------------------
 # 1️⃣  Flask entrypoint with duplicate protection
@@ -23,6 +37,79 @@ geolocator = Nominatim(user_agent="WavcorWebhook")
 
 # Store submissionId + timestamp (instead of plain set)
 processed_submissions = {}
+
+
+@app.route("/nearest_dealer", methods=["POST", "OPTIONS"])
+def nearest_dealer():
+    """
+    Public lookup endpoint for Wix dealer-search page.
+    Body JSON:
+      {"city":"Lumsden","province":"SK"}
+    """
+    if request.method == "OPTIONS":
+        return _set_cors_headers(app.response_class(status=204))
+
+    try:
+        if DEALER_LOOKUP_API_KEY:
+            sent_key = (request.headers.get("X-API-Key") or "").strip()
+            if sent_key != DEALER_LOOKUP_API_KEY:
+                return jsonify({"status": "error", "message": "Unauthorized"}), 401
+
+        payload = request.get_json(silent=True) or {}
+        city = str(payload.get("city") or payload.get("City") or "").strip()
+        province_raw = (
+            payload.get("province")
+            or payload.get("prov")
+            or payload.get("state")
+            or payload.get("Prov/State")
+            or ""
+        )
+        province = normalize_state(str(province_raw).strip())
+
+        if not city or not province:
+            return jsonify({
+                "status": "error",
+                "message": "Both city and province/state are required.",
+            }), 400
+
+        lat, lon = get_lat_lon_from_address(city, province)
+        if lat is None or lon is None:
+            return jsonify({
+                "status": "no_match",
+                "message": "Could not geocode location.",
+                "city": city,
+                "province": province,
+            }), 200
+
+        closest = find_closest_dealer(lat, lon)
+        if not closest:
+            return jsonify({
+                "status": "no_match",
+                "message": "No dealer found within configured driving range.",
+                "city": city,
+                "province": province,
+                "latitude": lat,
+                "longitude": lon,
+            }), 200
+
+        return jsonify({
+            "status": "ok",
+            "city": city,
+            "province": province,
+            "latitude": lat,
+            "longitude": lon,
+            "dealer": {
+                "location": closest.get("Location"),
+                "contact": closest.get("Contact"),
+                "phone": closest.get("Phone"),
+                "distance_km": closest.get("Distance_km"),
+                "drive_time_hr": closest.get("Drive_time_hr"),
+            },
+        }), 200
+    except Exception as e:
+        print(f"ERROR nearest_dealer: {e}", flush=True)
+        traceback.print_exc()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/wix_form_webhook", methods=["POST"])
 def wix_form_webhook():
