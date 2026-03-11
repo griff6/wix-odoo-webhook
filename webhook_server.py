@@ -12,7 +12,7 @@ from odoo_connector import (
     find_odoo_user_id, get_model_id,
     find_closest_dealer, find_existing_opportunity, update_odoo_opportunity,
     post_internal_note_to_opportunity, ODOO_URL, normalize_state, schedule_activity_for_lead,
-    set_dealer_property_on_lead, DEALER_LOCATIONS, haversine_distance,
+    set_dealer_property_on_lead, DEALER_LOCATIONS, haversine_distance, CANONICAL_CODES,
 )
 
 app = Flask(__name__)
@@ -107,6 +107,14 @@ def nearest_dealer():
             return jsonify({
                 "status": "error",
                 "message": "Both city and province/state are required.",
+            }), 400
+        if province not in CANONICAL_CODES:
+            return jsonify({
+                "status": "error",
+                "message": (
+                    f"Invalid province/state value '{province_raw}'. "
+                    "Use a 2-letter code like SK, MB, AB."
+                ),
             }), 400
 
         lat, lon = get_lat_lon_from_address(city, province)
