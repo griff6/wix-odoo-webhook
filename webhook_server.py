@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import json, traceback, time
 import re
 import os
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
@@ -18,6 +19,7 @@ from odoo_connector import (
 app = Flask(__name__)
 geolocator = Nominatim(user_agent="WavcorWebhook")
 DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
+GEO_CACHE_PATH = Path("geo_city_cache.json")
 GEOCODE_CACHE = {}
 GEOCODE_PROVINCE_NAMES = {
     "AB": "Alberta",
@@ -34,6 +36,52 @@ GEOCODE_PROVINCE_NAMES = {
     "SK": "Saskatchewan",
     "YT": "Yukon",
 }
+
+
+def _geo_key(city: str, prov: str, country: str = "Canada") -> str:
+    return f"{city.strip().lower()}|{prov.strip().lower()}|{country.strip().lower()}"
+
+
+def _load_geo_cache() -> dict:
+    if not GEO_CACHE_PATH.exists():
+        return {}
+    try:
+        raw = json.loads(GEO_CACHE_PATH.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_geo_cache(cache: dict) -> None:
+    try:
+        GEO_CACHE_PATH.write_text(json.dumps(cache, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        print(f"WARNING: Failed to save geo cache: {e}", flush=True)
+
+
+def _get_cached_coords(city: str, province_state: str, country: str = "Canada"):
+    province_raw = str(province_state or "").strip()
+    province_norm = normalize_state(province_raw)
+    province_for_geocode = GEOCODE_PROVINCE_NAMES.get(province_norm, province_raw)
+    cache = GEOCODE_CACHE
+    candidates = [
+        _geo_key(city, province_raw, country),
+        _geo_key(city, province_norm, country),
+        _geo_key(city, province_for_geocode, country),
+        _geo_key(city, f"{province_for_geocode} CA", country),
+    ]
+
+    for key in candidates:
+        val = cache.get(key)
+        if isinstance(val, (list, tuple)) and len(val) == 2:
+            try:
+                return float(val[0]), float(val[1])
+            except Exception:
+                continue
+    return None
+
+
+GEOCODE_CACHE = _load_geo_cache()
 
 
 def _nearest_dealer_by_distance(customer_lat, customer_lon):
@@ -442,22 +490,28 @@ def build_dealer_info(data):
 
 def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
     """Geocode city+province to latitude/longitude, with retries"""
-    province_for_geocode = GEOCODE_PROVINCE_NAMES.get(
-        str(province_state or "").strip().upper(),
-        province_state,
-    )
+    province_norm = str(province_state or "").strip().upper()
+    province_for_geocode = GEOCODE_PROVINCE_NAMES.get(province_norm, province_state)
     full_address = f"{city}, {province_for_geocode}, {country}"
-    cache_key = (city or "").strip().lower(), (province_state or "").strip().upper(), (country or "").strip().lower()
-    if cache_key in GEOCODE_CACHE:
-        return GEOCODE_CACHE[cache_key]
+    cached = _get_cached_coords(city, province_state, country)
+    if cached:
+        return cached
 
     print(f"DEBUG: Geocoding '{full_address}' (attempt {attempt})", flush=True)
     try:
         location = geolocator.geocode(full_address, timeout=10)
         if location:
             print(f"DEBUG: Success → {location.latitude}, {location.longitude}", flush=True)
-            GEOCODE_CACHE[cache_key] = (location.latitude, location.longitude)
-            return GEOCODE_CACHE[cache_key]
+            coords = (location.latitude, location.longitude)
+            for key in {
+                _geo_key(city, str(province_state or "").strip(), country),
+                _geo_key(city, province_norm, country),
+                _geo_key(city, province_for_geocode, country),
+                _geo_key(city, f"{province_for_geocode} CA", country),
+            }:
+                GEOCODE_CACHE[key] = coords
+            _save_geo_cache(GEOCODE_CACHE)
+            return coords
         print(f"WARNING: Could not geocode '{full_address}'", flush=True)
         return None, None
     except GeocoderTimedOut:
@@ -522,6 +576,8 @@ def sync_to_odoo(data):
                 dealer_note_lines.append(f"Dealer Contact Name: {closest['Contact']}")
             if closest.get("Phone"):
                 dealer_note_lines.append(f"Dealer Contact Phone: {closest['Phone']}")
+            if closest.get("Email"):
+                dealer_note_lines.append(f"Dealer Contact Email: {closest['Email']}")
 
         dealer_note_html = (
             "<b>Dealer Contact</b><br>" + "<br>".join(dealer_note_lines)
