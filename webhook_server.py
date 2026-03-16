@@ -285,6 +285,7 @@ def nearest_dealer():
                 "location": closest.get("Location"),
                 "contact": closest.get("Contact"),
                 "phone": closest.get("Phone"),
+                "email": closest.get("Email"),
                 "distance_km": closest.get("Distance_km"),
                 "drive_time_hr": closest.get("Drive_time_hr"),
                 "route_mode": closest.get("route_mode", "osrm"),
