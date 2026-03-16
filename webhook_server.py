@@ -4,7 +4,7 @@ import re
 import os
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from geopy.geocoders import Nominatim
+from geopy.geocoders import ArcGIS, Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from datetime import datetime, timedelta
 from odoo_connector import (
@@ -18,6 +18,7 @@ from odoo_connector import (
 
 app = Flask(__name__)
 geolocator = Nominatim(user_agent="WavcorWebhook")
+arcgis_geolocator = ArcGIS(timeout=10)
 DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
 GEO_CACHE_PATH = Path("geo_city_cache.json")
 GEOCODE_CACHE = {}
@@ -141,6 +142,31 @@ def _store_cached_coords(city: str, province_state: str, country: str, coords) -
     for key in _geo_cache_keys(city, province_state, country):
         GEOCODE_CACHE[key] = coords
     _save_geo_cache(GEOCODE_CACHE)
+
+
+def _extract_location_coords(location):
+    if not location:
+        return None
+    try:
+        return float(location.latitude), float(location.longitude)
+    except Exception:
+        return None
+
+
+def _try_arcgis_geocode(full_address: str, city: str, province_state: str, country: str):
+    try:
+        print(f"DEBUG: ArcGIS geocoding '{full_address}'", flush=True)
+        location = arcgis_geolocator.geocode(full_address, timeout=10)
+        coords = _extract_location_coords(location)
+        if coords:
+            print(f"DEBUG: ArcGIS success → {coords[0]}, {coords[1]}", flush=True)
+            _store_cached_coords(city, province_state, country, coords)
+            return coords
+        print(f"WARNING: ArcGIS could not geocode '{full_address}'", flush=True)
+        return None, None
+    except Exception as e:
+        print(f"ERROR: ArcGIS geocoding error: {e}", flush=True)
+        return None, None
 
 
 GEOCODE_CACHE = _load_geo_cache()
@@ -578,20 +604,20 @@ def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
     try:
         LAST_GEOCODE_REQUEST_TS = time.time()
         location = geolocator.geocode(full_address, timeout=10)
-        if location:
-            print(f"DEBUG: Success → {location.latitude}, {location.longitude}", flush=True)
-            coords = (location.latitude, location.longitude)
+        coords = _extract_location_coords(location)
+        if coords:
+            print(f"DEBUG: Success → {coords[0]}, {coords[1]}", flush=True)
             _store_cached_coords(city, province_state, country, coords)
             return coords
         print(f"WARNING: Could not geocode '{full_address}'", flush=True)
-        return None, None
+        return _try_arcgis_geocode(full_address, city, province_state, country)
     except GeocoderTimedOut:
         if attempt < 3:
             print("Retrying geocode after timeout...", flush=True)
             time.sleep(2)
             return get_lat_lon_from_address(city, province_state, country, attempt + 1)
         print("ERROR: Geocoding permanently failed after retries", flush=True)
-        return None, None
+        return _try_arcgis_geocode(full_address, city, province_state, country)
     except Exception as e:
         print(f"ERROR: Geocoding error: {e}", flush=True)
         if "429" in str(e):
@@ -600,7 +626,7 @@ def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
                 f"WARNING: Entering geocode cooldown for {int(GEOCODE_429_COOLDOWN_SECONDS)}s after 429 response",
                 flush=True,
             )
-        return None, None
+        return _try_arcgis_geocode(full_address, city, province_state, country)
 
 
 # --------------------------------------------------------------------
