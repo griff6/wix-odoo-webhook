@@ -1457,6 +1457,47 @@ def find_odoo_user_id(models, uid, user_name):
         print(f"Unexpected error finding user '{user_name}': {e}")
         return False
 
+
+def add_follower_to_lead(models, uid, lead_id, user_id):
+    """
+    Subscribe the user's partner record as a follower on a CRM lead/opportunity.
+    Returns True when the subscription call succeeds, otherwise False.
+    """
+    try:
+        user = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "res.users", "read",
+            [[int(user_id)]],
+            {"fields": ["partner_id"]},
+        )
+        if not user:
+            print(f"DEBUG follower: user {user_id} not found", flush=True)
+            return False
+
+        partner_field = user[0].get("partner_id")
+        partner_id = partner_field[0] if isinstance(partner_field, list) and partner_field else partner_field
+        if not partner_id:
+            print(f"DEBUG follower: user {user_id} has no partner_id", flush=True)
+            return False
+
+        result = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            "crm.lead", "message_subscribe",
+            [[int(lead_id)]],
+            {"partner_ids": [int(partner_id)]},
+        )
+        print(
+            f"👥 Added follower partner {partner_id} from user {user_id} to opportunity {lead_id}: {result}",
+            flush=True,
+        )
+        return bool(result)
+    except xmlrpc.client.Fault as e:
+        print(f"Odoo RPC Error adding follower to opportunity {lead_id}: {e.faultString}", flush=True)
+        return False
+    except Exception as e:
+        print(f"Unexpected error adding follower to opportunity {lead_id}: {e}", flush=True)
+        return False
+
 def create_odoo_activity_via_message(models, uid, opportunity_id, user_id, summary, note):
     """
     Creates an activity linked to an opportunity using activity_schedule().

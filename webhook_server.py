@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from odoo_connector import (
     create_odoo_contact, update_odoo_contact, find_existing_contact,
     create_odoo_opportunity, connect_odoo, get_or_create_opportunity_tags,
-    find_odoo_user_id, get_model_id,
+    find_odoo_user_id, get_model_id, add_follower_to_lead,
     find_closest_dealer, find_existing_opportunity, update_odoo_opportunity,
     post_internal_note_to_opportunity, ODOO_URL, normalize_state, schedule_activity_for_lead,
     set_dealer_property_on_lead, DEALER_LOCATIONS, haversine_distance, CANONICAL_CODES,
@@ -758,8 +758,9 @@ def sync_to_odoo(data):
             )
 
         # --- Optional: add follow-up activity ---
-        al_id = find_odoo_user_id(models, uid, "Al Baraniuk")
-        if al_id:
+        jeff_id = find_odoo_user_id(models, uid, "Jeff Buckton")
+        if jeff_id:
+            add_follower_to_lead(models, uid, opportunity_id, jeff_id)
             #activity_data = {
             #    "res_model": "crm.lead",          # ✅ use model name instead of numeric ID
             #    "res_id": opportunity_id,
@@ -773,7 +774,7 @@ def sync_to_odoo(data):
                 models,
                 uid,
                 opportunity_id,
-                al_id,
+                jeff_id,
                 "Follow up on email",
                 f"Follow-up for {data['Name']}",
             )
