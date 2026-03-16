@@ -1622,12 +1622,12 @@ def find_existing_opportunity(opportunity_name):
         
         for record in existing:
             record_name = normalize_spaces(record['name'])
-            
+
             # Exact match (after normalization)
             if record_name.lower() == target_name.lower():
                 print(f"DEBUG: Exact match found: {record_name} (ID: {record['id']})")
                 return record
-            
+
             # Save the first record as closest match if exact not found
             if closest_match is None:
                 closest_match = record

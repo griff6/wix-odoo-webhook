@@ -21,6 +21,10 @@ geolocator = Nominatim(user_agent="WavcorWebhook")
 DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
 GEO_CACHE_PATH = Path("geo_city_cache.json")
 GEOCODE_CACHE = {}
+LAST_GEOCODE_REQUEST_TS = 0.0
+GEOCODE_RATE_LIMIT_SECONDS = 1.2
+GEOCODE_429_COOLDOWN_SECONDS = 60.0
+GEOCODE_COOLDOWN_UNTIL = 0.0
 GEOCODE_PROVINCE_NAMES = {
     "AB": "Alberta",
     "BC": "British Columbia",
@@ -42,6 +46,39 @@ def _geo_key(city: str, prov: str, country: str = "Canada") -> str:
     return f"{city.strip().lower()}|{prov.strip().lower()}|{country.strip().lower()}"
 
 
+def _normalize_city_text(city: str) -> str:
+    text = re.sub(r"[^\w\s-]", " ", str(city or "").strip().lower())
+    text = re.sub(r"[\s_-]+", " ", text).strip()
+    return text
+
+
+def _compact_city_text(city: str) -> str:
+    return _normalize_city_text(city).replace(" ", "")
+
+
+def _geo_cache_keys(city: str, province_state: str, country: str = "Canada"):
+    province_raw = str(province_state or "").strip()
+    province_norm = normalize_state(province_raw)
+    province_for_geocode = GEOCODE_PROVINCE_NAMES.get(province_norm, province_raw)
+    city_variants = {
+        str(city or "").strip(),
+        _normalize_city_text(city),
+        _compact_city_text(city),
+    }
+    prov_variants = {
+        province_raw,
+        province_norm,
+        province_for_geocode,
+        f"{province_for_geocode} CA",
+    }
+    return {
+        _geo_key(city_variant, prov_variant, country)
+        for city_variant in city_variants
+        for prov_variant in prov_variants
+        if city_variant and prov_variant
+    }
+
+
 def _load_geo_cache() -> dict:
     if not GEO_CACHE_PATH.exists():
         return {}
@@ -60,25 +97,50 @@ def _save_geo_cache(cache: dict) -> None:
 
 
 def _get_cached_coords(city: str, province_state: str, country: str = "Canada"):
-    province_raw = str(province_state or "").strip()
-    province_norm = normalize_state(province_raw)
-    province_for_geocode = GEOCODE_PROVINCE_NAMES.get(province_norm, province_raw)
     cache = GEOCODE_CACHE
-    candidates = [
-        _geo_key(city, province_raw, country),
-        _geo_key(city, province_norm, country),
-        _geo_key(city, province_for_geocode, country),
-        _geo_key(city, f"{province_for_geocode} CA", country),
-    ]
-
-    for key in candidates:
+    for key in _geo_cache_keys(city, province_state, country):
         val = cache.get(key)
         if isinstance(val, (list, tuple)) and len(val) == 2:
             try:
                 return float(val[0]), float(val[1])
             except Exception:
                 continue
+
+    target_city_norm = _normalize_city_text(city)
+    target_city_compact = _compact_city_text(city)
+    target_prov_norm = normalize_state(str(province_state or "").strip())
+    for key, val in cache.items():
+        if not (isinstance(val, (list, tuple)) and len(val) == 2):
+            continue
+        try:
+            cached_city, cached_prov, cached_country = key.split("|", 2)
+        except ValueError:
+            continue
+        if cached_country.strip().lower() != str(country or "").strip().lower():
+            continue
+        cached_city_norm = _normalize_city_text(cached_city)
+        cached_city_compact = _compact_city_text(cached_city)
+        cached_prov_norm = normalize_state(cached_prov)
+        if (
+            cached_prov_norm == target_prov_norm
+            and (
+                cached_city_norm == target_city_norm
+                or cached_city_compact == target_city_compact
+            )
+        ):
+            try:
+                coords = (float(val[0]), float(val[1]))
+                _store_cached_coords(city, province_state, country, coords)
+                return coords
+            except Exception:
+                continue
     return None
+
+
+def _store_cached_coords(city: str, province_state: str, country: str, coords) -> None:
+    for key in _geo_cache_keys(city, province_state, country):
+        GEOCODE_CACHE[key] = coords
+    _save_geo_cache(GEOCODE_CACHE)
 
 
 GEOCODE_CACHE = _load_geo_cache()
@@ -490,6 +552,8 @@ def build_dealer_info(data):
 
 def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
     """Geocode city+province to latitude/longitude, with retries"""
+    global LAST_GEOCODE_REQUEST_TS, GEOCODE_COOLDOWN_UNTIL
+
     province_norm = str(province_state or "").strip().upper()
     province_for_geocode = GEOCODE_PROVINCE_NAMES.get(province_norm, province_state)
     full_address = f"{city}, {province_for_geocode}, {country}"
@@ -497,20 +561,27 @@ def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
     if cached:
         return cached
 
+    now = time.time()
+    if now < GEOCODE_COOLDOWN_UNTIL:
+        remaining = round(GEOCODE_COOLDOWN_UNTIL - now, 1)
+        print(
+            f"WARNING: Skipping geocode for '{full_address}' during 429 cooldown ({remaining}s remaining)",
+            flush=True,
+        )
+        return None, None
+
+    wait_s = GEOCODE_RATE_LIMIT_SECONDS - (now - LAST_GEOCODE_REQUEST_TS)
+    if wait_s > 0:
+        time.sleep(wait_s)
+
     print(f"DEBUG: Geocoding '{full_address}' (attempt {attempt})", flush=True)
     try:
+        LAST_GEOCODE_REQUEST_TS = time.time()
         location = geolocator.geocode(full_address, timeout=10)
         if location:
             print(f"DEBUG: Success → {location.latitude}, {location.longitude}", flush=True)
             coords = (location.latitude, location.longitude)
-            for key in {
-                _geo_key(city, str(province_state or "").strip(), country),
-                _geo_key(city, province_norm, country),
-                _geo_key(city, province_for_geocode, country),
-                _geo_key(city, f"{province_for_geocode} CA", country),
-            }:
-                GEOCODE_CACHE[key] = coords
-            _save_geo_cache(GEOCODE_CACHE)
+            _store_cached_coords(city, province_state, country, coords)
             return coords
         print(f"WARNING: Could not geocode '{full_address}'", flush=True)
         return None, None
@@ -523,6 +594,12 @@ def get_lat_lon_from_address(city, province_state, country="Canada", attempt=1):
         return None, None
     except Exception as e:
         print(f"ERROR: Geocoding error: {e}", flush=True)
+        if "429" in str(e):
+            GEOCODE_COOLDOWN_UNTIL = time.time() + GEOCODE_429_COOLDOWN_SECONDS
+            print(
+                f"WARNING: Entering geocode cooldown for {int(GEOCODE_429_COOLDOWN_SECONDS)}s after 429 response",
+                flush=True,
+            )
         return None, None
 
 
