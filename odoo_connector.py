@@ -82,6 +82,8 @@ def _or_domain_for_present_fields(field_names: list):
     domain_parts = [(field, "!=", False) for field in field_names]
     if not domain_parts:
         return []
+    if len(domain_parts) == 1:
+        return [domain_parts[0]]
     domain = domain_parts[0]
     for next_part in domain_parts[1:]:
         domain = ["|", domain, next_part]
