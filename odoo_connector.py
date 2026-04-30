@@ -32,6 +32,7 @@ DIRECT_DISTANCE_BUFFER_KM = 75.0
 OSRM_ROUTE_TIMEOUT_S = 4
 OSRM_TABLE_TIMEOUT_S = 15
 OSRM_ROUTE_FALLBACK_MAX_CALLS = 8
+_MODEL_FIELD_CACHE = {}
 
 def _ensure_char(v):
     """Return a safe Char/Text value: empty string for None."""
@@ -50,6 +51,41 @@ def _drop_nones(d: dict) -> dict:
     """Remove keys whose value is None (keep False/empty strings)."""
     return {k: ("" if (v is None and isinstance(v, str)) else v)
             for k, v in d.items() if v is not None}
+
+def _get_model_field_names(models, uid, model_name: str) -> set:
+    """Return available fields for a model, cached per process."""
+    cache_key = (ODOO_DB, model_name)
+    if cache_key in _MODEL_FIELD_CACHE:
+        return _MODEL_FIELD_CACHE[cache_key]
+
+    try:
+        fields = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD,
+            model_name, "fields_get",
+            [], {"attributes": ["string"]},
+        )
+        field_names = set(fields.keys())
+        field_names.add("id")
+        _MODEL_FIELD_CACHE[cache_key] = field_names
+        return field_names
+    except Exception as e:
+        print(f"⚠️ Could not inspect fields for {model_name}: {e}", flush=True)
+        return set()
+
+def _filter_model_fields(models, uid, model_name: str, field_names: list) -> list:
+    available = _get_model_field_names(models, uid, model_name)
+    if not available:
+        return [field for field in field_names if field != "mobile"]
+    return [field for field in field_names if field == "id" or field in available]
+
+def _or_domain_for_present_fields(field_names: list):
+    domain_parts = [(field, "!=", False) for field in field_names]
+    if not domain_parts:
+        return []
+    domain = domain_parts[0]
+    for next_part in domain_parts[1:]:
+        domain = ["|", domain, next_part]
+    return domain
 
 def _norm_phone(p: str) -> str:
     if not p: return ""
@@ -1176,10 +1212,14 @@ def update_odoo_contact(contact_id, data):
         print("❌ Failed to connect to Odoo for contact update.")
         return False
 
-    # Read current values to make decisions (name/email/phone/mobile/city)
+    partner_fields = _filter_model_fields(
+        models, uid, "res.partner", ["name", "email", "phone", "mobile", "city"]
+    )
+
+    # Read current values to make decisions (name/email/phone/city; mobile if available)
     current = models.execute_kw(
         ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "read",
-        [[contact_id]], {"fields": ["name", "email", "phone", "mobile", "city"], "load": "classic"}
+        [[contact_id]], {"fields": partner_fields, "load": "classic"}
     )[0]
 
     form_name = (data.get("Name") or f"{data.get('First name','')} {data.get('Last name','')}").strip()
@@ -1291,9 +1331,10 @@ def find_existing_contact(data):
     """
     Priority:
       1) email exact (case-insensitive)
-      2) phone digits exact in phone OR mobile
+      2) phone digits exact in phone OR mobile, when those fields exist
       3) name+city fallback with loose similarity
-    Returns a dict {id, name, email, phone, mobile, city} or None.
+    Returns a dict {id, name, email, phone, mobile, city} or None. Missing fields
+    are omitted when they are unavailable in the current Odoo database.
     """
     uid, models = connect_odoo()
     if not uid:
@@ -1304,6 +1345,10 @@ def find_existing_contact(data):
     phone_norm = _norm_phone(data.get("Phone") or "")
     name_in = (data.get("Name") or f"{data.get('First name','')} {data.get('Last name','')}").strip()
     city = (data.get("City") or "").strip()
+    partner_fields = _filter_model_fields(
+        models, uid, "res.partner", ["id", "name", "email", "phone", "mobile", "city"]
+    )
+    phone_match_fields = _filter_model_fields(models, uid, "res.partner", ["phone", "mobile"])
 
     try:
         # 1) Email exact
@@ -1311,19 +1356,19 @@ def find_existing_contact(data):
             res = models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "search_read",
                 [[("email", "=", email)]],
-                {"fields": ["id", "name", "email", "phone", "mobile", "city"], "limit": 1},
+                {"fields": partner_fields, "limit": 1},
             )
             if res: return res[0]
 
         # 2) Phone exact
-        if phone_norm:
+        if phone_norm and phone_match_fields:
             res = models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "search_read",
-                [['|', ('phone', '!=', False), ('mobile', '!=', False)]],
-                {"fields": ["id", "name", "email", "phone", "mobile", "city"], "limit": 50},
+                [_or_domain_for_present_fields(phone_match_fields)],
+                {"fields": partner_fields, "limit": 50},
             )
             for r in res:
-                if _norm_phone(r.get("phone")) == phone_norm or _norm_phone(r.get("mobile")) == phone_norm:
+                if any(_norm_phone(r.get(field)) == phone_norm for field in phone_match_fields):
                     return r
 
         # 3) Name + City fallback
@@ -1331,7 +1376,7 @@ def find_existing_contact(data):
             res = models.execute_kw(
                 ODOO_DB, uid, ODOO_PASSWORD, "res.partner", "search_read",
                 [["&", ("name", "ilike", name_in), ("city", "ilike", city)]],
-                {"fields": ["id", "name", "email", "phone", "mobile", "city"], "limit": 5},
+                {"fields": partner_fields, "limit": 5},
             )
             # choose the one with the most similar name
             best = None
