@@ -32,6 +32,7 @@ DIRECT_DISTANCE_BUFFER_KM = 75.0
 OSRM_ROUTE_TIMEOUT_S = 4
 OSRM_TABLE_TIMEOUT_S = 15
 OSRM_ROUTE_FALLBACK_MAX_CALLS = 8
+DIRECT_DISTANCE_FALLBACK_KMH = 80.0
 _MODEL_FIELD_CACHE = {}
 
 def _ensure_char(v):
@@ -875,7 +876,8 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
     """
     Find the closest dealer by DRIVING distance, but only among dealers within max_drive_hours.
     Evaluates all dealers (not first match), then picks the shortest driving distance.
-    Returns dealer dict with Distance_km and Drive_time_hr, or None if no route/dealer in threshold.
+    Falls back to nearest direct distance only when OSRM returns no routes at all.
+    Returns dealer dict with Distance_km and Drive_time_hr, or None if no dealer is in threshold.
     """
     if not DEALER_LOCATIONS:
         print("No dealer locations defined.")
@@ -1000,6 +1002,27 @@ def find_closest_dealer(customer_lat, customer_lon, max_drive_hours: float = MAX
         _save_route_cache(cache)
 
     if not candidates:
+        if not all_rows and direct_rows:
+            fallback_max_km = max_drive_hours * DIRECT_DISTANCE_FALLBACK_KMH
+            direct_km, _idx, dealer, _dealer_lat, _dealer_lon = direct_rows[0]
+            if direct_km <= fallback_max_km:
+                result = dict(dealer)
+                result["Distance_km"] = round(direct_km, 2)
+                result["Drive_time_hr"] = round(direct_km / DIRECT_DISTANCE_FALLBACK_KMH, 2)
+                result["route_mode"] = "distance_fallback"
+                print(
+                    f"WARNING dealer: OSRM unavailable; using direct-distance fallback "
+                    f"selected='{result.get('Location')}' distance_km={result['Distance_km']} "
+                    f"approx_drive_hr={result['Drive_time_hr']}",
+                    flush=True,
+                )
+                return result
+            print(
+                f"INFO dealer: OSRM unavailable and nearest direct dealer "
+                f"'{dealer.get('Location')}' is {direct_km:.2f} km away, "
+                f"beyond fallback limit {fallback_max_km:.2f} km.",
+                flush=True,
+            )
         print(
             f"INFO: No dealer found within {max_drive_hours:.1f}h driving "
             f"for ({customer_lat}, {customer_lon})."
