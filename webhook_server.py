@@ -3,6 +3,7 @@ import json, traceback, time
 import re
 import os
 from pathlib import Path
+from email.utils import parseaddr
 from datetime import datetime, timezone, timedelta
 from geopy.geocoders import ArcGIS, Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
@@ -21,6 +22,8 @@ geolocator = Nominatim(user_agent="WavcorWebhook")
 arcgis_geolocator = ArcGIS(timeout=10)
 DEALER_LOOKUP_API_KEY = (os.getenv("DEALER_LOOKUP_API_KEY") or "").strip()
 GEO_CACHE_PATH = Path("geo_city_cache.json")
+BLOCKED_EMAIL_DOMAINS_PATH = Path("blocked_email_domains.txt")
+BLOCKED_EMAIL_DOMAINS_ENV = "BLOCKED_EMAIL_DOMAINS"
 GEOCODE_CACHE = {}
 LAST_GEOCODE_REQUEST_TS = 0.0
 GEOCODE_RATE_LIMIT_SECONDS = 1.2
@@ -41,6 +44,71 @@ GEOCODE_PROVINCE_NAMES = {
     "SK": "Saskatchewan",
     "YT": "Yukon",
 }
+
+
+def _normalize_email_domain(domain: str) -> str:
+    domain = str(domain or "").strip().lower()
+    domain = domain.removeprefix("@").rstrip(".")
+    return domain
+
+
+def _load_blocked_email_domains() -> set:
+    domains = set()
+
+    env_value = os.getenv(BLOCKED_EMAIL_DOMAINS_ENV, "")
+    for domain in env_value.split(","):
+        normalized = _normalize_email_domain(domain)
+        if normalized:
+            domains.add(normalized)
+
+    if BLOCKED_EMAIL_DOMAINS_PATH.exists():
+        try:
+            for line in BLOCKED_EMAIL_DOMAINS_PATH.read_text(encoding="utf-8").splitlines():
+                value = line.split("#", 1)[0].strip()
+                normalized = _normalize_email_domain(value)
+                if normalized:
+                    domains.add(normalized)
+        except Exception as e:
+            print(f"WARNING: Failed to read blocked email domains: {e}", flush=True)
+
+    return domains
+
+
+def _email_domain(email_value: str) -> str:
+    _, parsed_email = parseaddr(str(email_value or ""))
+    if "@" not in parsed_email:
+        return ""
+    return _normalize_email_domain(parsed_email.rsplit("@", 1)[1])
+
+
+def _is_blocked_email_domain(email_value: str):
+    email_domain = _email_domain(email_value)
+    if not email_domain:
+        return False, ""
+
+    for blocked_domain in _load_blocked_email_domains():
+        if email_domain == blocked_domain or email_domain.endswith(f".{blocked_domain}"):
+            return True, blocked_domain
+
+    return False, ""
+
+
+def _blocked_domain_result(data: dict, form_name: str):
+    email = data.get("Email") or ""
+    is_blocked, blocked_domain = _is_blocked_email_domain(email)
+    if not is_blocked:
+        return None
+
+    print(
+        f"🚫 Blocked {form_name} submission from email domain '{blocked_domain}': {email}",
+        flush=True,
+    )
+    return {
+        "status": "blocked",
+        "form": form_name,
+        "reason": "Blocked email domain",
+        "blocked_domain": blocked_domain,
+    }
 
 
 def _geo_key(city: str, prov: str, country: str = "Canada") -> str:
@@ -371,6 +439,9 @@ def handle_quote_form(fields):
     """Handle 'Quote Form' submissions from Wix"""
     # Step 1: Build base contact and location info
     data = build_common_data(fields)
+    blocked_result = _blocked_domain_result(data, "Quote Form")
+    if blocked_result:
+        return blocked_result
 
     # Step 2: Extract quote-specific fields
     name = data["Name"]
@@ -415,6 +486,9 @@ def handle_contact_form(fields):
     """Handle a generic contact form"""
     # Step 1: Build base data (contact, city/province, etc.)
     data = build_common_data(fields)
+    blocked_result = _blocked_domain_result(data, "Contact Form")
+    if blocked_result:
+        return blocked_result
 
     # Step 2: Extract fields that might exist on the contact form
     name = data["Name"]
@@ -465,6 +539,9 @@ def handle_manhole_quote_form(fields):
     """Handle the 'Manhole Quote Form' submission."""
     # Step 1: Build base data (contact info, etc.)
     data = build_common_data(fields)
+    blocked_result = _blocked_domain_result(data, "Manhole Quote Form")
+    if blocked_result:
+        return blocked_result
 
     # Handle typo variations from Wix ("Privince/State")
     data["Prov/State"] = fields.get("Province/State") or fields.get("Privince/State") or ""
